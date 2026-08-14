@@ -2,6 +2,9 @@
 # Raw datasets
 # =========================
 data/raw/india_air_quality/
+data/raw/cpcb/
+data/raw/openaq/
+data/raw/weather/
 
 # =========================
 # Python
