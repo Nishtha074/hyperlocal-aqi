@@ -1,0 +1,7 @@
+StationId,StationName,City,State,Latitude,Longitude,observation_count,mean_pm25,median_pm25,max_pm25,min_pm25
+MH007,Chhatrapati Shivaji Intl. Airport (T2),Mumbai,Maharashtra,19.1008,72.8746,8363,41.911883755130916,24.485,202.45,0.04
+MH008,Colaba,Mumbai,Maharashtra,18.91,72.82,8451,38.29369970086945,21.11,661.31,0.03
+MH009,Kurla,Mumbai,Maharashtra,19.0863,72.8888,8537,40.52118866829108,25.12,680.73,0.02
+MH010,Powai,Mumbai,Maharashtra,19.1375,72.9151,9287,32.367457765201166,20.08,219.95,0.03
+MH011,Sion,Mumbai,Maharashtra,19.0418,72.8652,8542,41.40372367236104,26.235,313.2,0.17
+MH014,Worli,Mumbai,Maharashtra,18.9936,72.8128,8986,36.72196145131357,20.0,533.0,0.08
