@@ -1,0 +1,2 @@
+total_stations,valid_coordinate_stations,missing_coordinate_stations,unmatched_station_metadata,duplicate_conflicting_metadata,pairwise_distance_count,minimum_distance_km,maximum_distance_km,mean_distance_km,median_distance_km,nearby_station_radius_km,minimum_nearby_count,maximum_nearby_count,average_nearby_count,road_distance_coverage
+6,6,0,0,0,15,2.1968110641420022,27.200625824269576,12.456086731427103,11.863096712252775,5.0,0,1,0.3333333333333333,BLOCKED: no legitimate road geometry found
