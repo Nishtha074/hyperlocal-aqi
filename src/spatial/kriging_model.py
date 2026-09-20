@@ -1,10 +1,18 @@
+import os
+import sys
 import numpy as np
+
+# Ensure project root is in sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
 try:
+    # pyrefly: ignore [missing-import]
     from pykrige.ok import OrdinaryKriging
 except ImportError:
     OrdinaryKriging = None
 
-from src.spatial.baseline_models import SpatialInterpolator
+from src.spatial.baseline_models import SpatialInterpolator, evaluate_model
+
 
 class KrigingInterpolator(SpatialInterpolator):
     """
@@ -55,3 +63,33 @@ class KrigingInterpolator(SpatialInterpolator):
         # PyKrige 'execute' takes style='points' for arrays of x and y
         z_pred, ss_pred = self.model.execute('points', target_lons, target_lats)
         return z_pred.data
+
+
+if __name__ == "__main__":
+    import pandas as pd
+
+    print("=" * 60)
+    print("ORDINARY KRIGING MODEL DEMO")
+    print("=" * 60)
+
+    file_path = "data/processed/spatial_station_features.csv"
+    if os.path.exists(file_path):
+        df = pd.read_csv(file_path)
+        print(f"Loaded {len(df)} stations from {file_path}")
+        coords = df[["Latitude", "Longitude"]].values
+        values = df["mean_PM25"].values
+
+        if OrdinaryKriging is not None:
+            try:
+                kriging = KrigingInterpolator(variogram_model="linear")
+                kriging.fit(coords, values)
+                preds = kriging.predict(coords)
+                metrics = evaluate_model(values, preds)
+                print(f"Ordinary Kriging (Linear Variogram) -> MAE: {metrics['MAE']:.2f}, RMSE: {metrics['RMSE']:.2f}")
+            except Exception as e:
+                print(f"Kriging execution error: {e}")
+        else:
+            print("PyKrige package is not installed. Run: pip install pykrige")
+    else:
+        print(f"Station feature file not found at {file_path}")
+

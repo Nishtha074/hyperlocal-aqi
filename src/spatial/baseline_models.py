@@ -82,3 +82,38 @@ def evaluate_model(y_true, y_pred):
     mae = np.mean(np.abs(y_true - y_pred))
     rmse = np.sqrt(np.mean((y_true - y_pred)**2))
     return {'MAE': mae, 'RMSE': rmse}
+
+
+if __name__ == "__main__":
+    import os
+    import sys
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+    print("=" * 60)
+    print("SPATIAL BASELINE MODELS DEMO (Nearest Neighbor & IDW)")
+    print("=" * 60)
+
+    # Load station spatial features
+    file_path = "data/processed/spatial_station_features.csv"
+    if os.path.exists(file_path):
+        df = pd.read_csv(file_path)
+        print(f"Loaded {len(df)} stations from {file_path}")
+        coords = df[["Latitude", "Longitude"]].values
+        values = df["mean_PM25"].values
+
+        # Test Nearest Neighbor
+        nn = NearestNeighborInterpolator()
+        nn.fit(coords, values)
+        nn_preds = nn.predict(coords)
+        nn_metrics = evaluate_model(values, nn_preds)
+        print(f"Nearest Neighbor (Self-fit) -> MAE: {nn_metrics['MAE']:.2f}, RMSE: {nn_metrics['RMSE']:.2f}")
+
+        # Test IDW
+        idw = IDWInterpolator(power=2.0)
+        idw.fit(coords, values)
+        idw_preds = idw.predict(coords)
+        idw_metrics = evaluate_model(values, idw_preds)
+        print(f"IDW (Power=2.0, Self-fit) -> MAE: {idw_metrics['MAE']:.2f}, RMSE: {idw_metrics['RMSE']:.2f}")
+    else:
+        print(f"Station feature file not found at {file_path}")
+
