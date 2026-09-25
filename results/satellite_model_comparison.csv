@@ -1,0 +1,4 @@
+Metric,Baseline,With Satellite,Improvement (%)
+MAE (µg/m³),4.253,4.001,5.92
+RMSE (µg/m³),11.297,10.937,3.19
+R² Score,0.3047,0.3483,14.31
