@@ -1,0 +1,4 @@
+Model,Region,MAE,RMSE,R2,Note
+Mumbai Satellite (original eval),Mumbai,11.0,11.0,0.93,Original training evaluation (full hourly data)
+Mumbai Satellite (re-eval),Mumbai (sat-filtered hours),4.001,10.937,0.3483,Re-evaluation on satellite-pass hours only
+Regional Weather Model,Gujarat + Maharashtra,8.421,15.807,0.835,Chronological 80/20 split on full hourly data
