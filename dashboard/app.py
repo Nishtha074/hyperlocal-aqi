@@ -1,6 +1,9 @@
 import os
 import sys
-from datetime import datetime
+
+ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 
 import folium
 import numpy as np
@@ -9,9 +12,14 @@ import streamlit as st
 from folium.plugins import HeatMap
 from streamlit_folium import st_folium
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+
+
+from src.forecasting.live_forecast import get_live_forecast
+
+
+
+from src.data.live_aqi import get_live_aqi
+from src.data.location import get_current_location
 
 from src.dashboard_helpers import (
     forecast_table_for_snapshot,
@@ -97,8 +105,23 @@ def get_snapshot_cached():
     return get_latest_air_quality_snapshot()
 
 
-snapshot = get_snapshot_cached()
+location = get_current_location()
+live = get_live_aqi(location["lat"], location["lon"])
 
+forecast_map = get_live_forecast(
+    pm25=live["pm25"],
+    lat=location["lat"],    
+    lon=location["lon"]
+)
+
+snapshot = {
+    "location": location["city"],
+    "last_updated": pd.Timestamp.now(),
+    "current_aqi": live["aqi"],
+    "pm25": live["pm25"],
+    "pm10": live["pm10"],
+    "forecast_map": forecast_map
+}
 
 if page == "Home":
     st.title("Hyperlocal AQI Overview")
@@ -177,21 +200,54 @@ elif page == "AQI Map":
         st_folium(m, width=1000, height=600)
 
 
+
 elif page == "Forecast":
     st.title("AQI Forecast")
-    forecast_df = forecast_table_for_snapshot(snapshot, st.session_state["user_profile"])
-    if forecast_df.empty:
-        st.info("Forecast data is not available for the current project snapshot.")
-    else:
-        st.write(f"Current AQI: **{snapshot.get('current_aqi') if snapshot.get('current_aqi') is not None else 'N/A'}**")
-        chart_df = forecast_df[["offset_hours", "predicted_aqi"]].rename(columns={"offset_hours": "Hour offset", "predicted_aqi": "Predicted AQI"})
-        st.line_chart(chart_df.set_index("Hour offset"))
-        st.dataframe(forecast_df[["offset_hours", "timestamp", "predicted_aqi", "risk_level"]].rename(columns={
-            "offset_hours": "Hour",
-            "timestamp": "Forecast time",
-            "predicted_aqi": "Predicted AQI",
-            "risk_level": "Risk level",
-        }), use_container_width=True)
+
+    current = snapshot["current_aqi"]
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        st.metric("Current AQI", current)
+
+    with col2:
+        st.metric(
+            "1 Hour",
+            snapshot["forecast_map"][1],
+            delta=snapshot["forecast_map"][1] - current,
+        )
+
+    with col3:
+        st.metric(
+            "3 Hour",
+            snapshot["forecast_map"][3],
+            delta=snapshot["forecast_map"][3] - current,
+        )
+
+    with col4:
+        st.metric(
+            "6 Hour",
+            snapshot["forecast_map"][6],
+            delta=snapshot["forecast_map"][6] - current,
+        )
+
+    st.markdown("---")
+
+    chart_df = pd.DataFrame({
+        "Hour": [0, 1, 3, 6],
+        "AQI": [
+            current,
+            snapshot["forecast_map"][1],
+            snapshot["forecast_map"][3],
+            snapshot["forecast_map"][6],
+        ]
+    })
+
+    st.subheader("AQI Trend")
+    st.line_chart(chart_df.set_index("Hour"))
+    st.dataframe(chart_df, use_container_width=True)
+
 
 
 elif page == "Personal Risk":

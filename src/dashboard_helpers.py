@@ -9,6 +9,8 @@ import pandas as pd
 from src.risk.personalized_risk import calculate_personalized_risk, calculate_personalized_threshold, normalize_profile
 from src.uncertainty.forecast_uncertainty import get_uncertainty_snapshot
 
+from src.forecasting.aqi import pm25_to_aqi
+
 
 def project_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -123,18 +125,45 @@ def get_latest_air_quality_snapshot() -> Dict[str, Any]:
             if df.empty:
                 continue
 
-            current_aqi = safe_float(df["AQI"].dropna().iloc[-1]) if "AQI" in df.columns else None
-            current_pm25 = safe_float(df["PM2.5"].dropna().iloc[-1]) if "PM2.5" in df.columns else None
-            current_pm10 = safe_float(df["PM10"].dropna().iloc[-1]) if "PM10" in df.columns else None
-            last_dt = df["Datetime"].dropna().iloc[-1]
+            # current_aqi = safe_float(df["AQI"].dropna().iloc[-1]) if "AQI" in df.columns else None
+            # current_pm25 = safe_float(df["PM2.5"].dropna().iloc[-1]) if "PM2.5" in df.columns else None
+            # current_pm10 = safe_float(df["PM10"].dropna().iloc[-1]) if "PM10" in df.columns else None
+            # last_dt = df["Datetime"].dropna().iloc[-1]
+
+            
+           
+            forecast_ready = df.dropna(
+        subset=[
+            "target_PM25_1h",
+            "target_PM25_3h",
+            "target_PM25_6h",
+        ]
+    )
+
+            if not forecast_ready.empty:
+                latest_row = forecast_ready.iloc[-1]
+            else:
+                latest_row = df.iloc[-1]
+            
+            current_pm25 = safe_float(latest_row.get("PM2.5"))
+            current_pm10 = safe_float(latest_row.get("PM10"))
+            last_dt = latest_row["Datetime"]
+
+            current_aqi = pm25_to_aqi(current_pm25)
 
             forecast_map: Dict[int, float] = {}
-            for horizon in [1, 2, 3, 4, 5, 6]:
-                target_col = f"target_{horizon}h" if horizon != 1 else "target_1h"
+
+            for horizon in [1, 3, 6]:
+                target_col = f"target_PM25_{horizon}h"
+
                 if target_col in df.columns:
-                    value = safe_float(df[target_col].dropna().iloc[-1])
-                    if value is not None:
-                        forecast_map[horizon] = value
+                    predicted_pm25 = safe_float(latest_row.get(target_col))
+
+                    if predicted_pm25 is not None:
+                        predicted_aqi = pm25_to_aqi(predicted_pm25)
+
+                        if predicted_aqi is not None:
+                            forecast_map[horizon] = predicted_aqi
 
             if not forecast_map:
                 for key in ["target_PM25_1h", "forecast_aqi"]:
