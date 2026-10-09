@@ -1,22 +1,21 @@
-import requests, os, csv
+import requests, os
+import asyncpg
+import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
 
 URL = f"https://api.data.gov.in/resource/{os.getenv('DATA_GOV_RESOURCE_ID')}"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-}
+HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 PARAMS = {
     "api-key": os.getenv("DATA_GOV_API_KEY"),
     "format": "json",
-    "filters[state]": os.getenv("CPCB_STATE"),
-    "filters[city]": os.getenv("CPCB_CITY"),
+    "filters[state]": os.getenv("CPCB_STATE", "Maharashtra"),
+    "filters[city]": os.getenv("CPCB_CITY", "Pune"),
     "limit": 200
 }
-
-OUT_FILE = "data/raw/cpcb/pune_cpcb_history.csv"
+DB_URL = os.getenv("DATABASE_URL")
 
 def fetch():
     resp = requests.get(URL, params=PARAMS, headers=HEADERS)
@@ -24,51 +23,41 @@ def fetch():
     return resp.json().get("records", [])
 
 def reshape(records):
-    """Group rows by station into one row per station with pollutants as columns."""
     stations = {}
     for r in records:
         key = r["station"]
         if key not in stations:
             stations[key] = {
-                "fetched_at": datetime.now().isoformat(timespec="seconds"),
-                "last_update": r["last_update"],
-                "station": r["station"],
-                "city": r["city"],
-                "state": r["state"],
-                "latitude": r["latitude"],
-                "longitude": r["longitude"],
+                "station": r["station"], "city": r["city"], "state": r["state"],
+                "latitude": float(r["latitude"]) if r.get("latitude") else None,
+                "longitude": float(r["longitude"]) if r.get("longitude") else None,
+                "last_update": r["last_update"]
             }
-        pollutant = r["pollutant_id"]
-        stations[key][pollutant] = r["avg_value"]
+        val = r["avg_value"]
+        pollutant_key = r["pollutant_id"].lower().replace(".", "")
+        stations[key][pollutant_key] = None if val == "NA" else float(val)
     return list(stations.values())
 
-def save(rows):
-    if not rows:
-        print("No rows to save.")
+async def save_to_db(rows):
+    if not DB_URL:
+        print("DATABASE_URL not set!")
         return
-
-    os.makedirs(os.path.dirname(OUT_FILE), exist_ok=True)
-
-    all_keys = set()
+    conn = await asyncpg.connect(DB_URL)
     for row in rows:
-        all_keys.update(row.keys())
-    fixed_cols = ["fetched_at", "last_update", "station", "city", "state", "latitude", "longitude"]
-    pollutant_cols = sorted(all_keys - set(fixed_cols))
-    fieldnames = fixed_cols + pollutant_cols
-
-    file_exists = os.path.exists(OUT_FILE)
-    with open(OUT_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        if not file_exists:
-            writer.writeheader()
-        for row in rows:
-            writer.writerow(row)
-
-    print(f"Saved {len(rows)} station rows to {OUT_FILE}")
+        try:
+            await conn.execute("""
+                INSERT INTO cpcb_readings (station, city, state, latitude, longitude,
+                    pm25, pm10, no2, so2, co, ozone, nh3, last_update)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+            """, row["station"], row["city"], row["state"], row["latitude"], row["longitude"],
+                 row.get("pm25"), row.get("pm10"), row.get("no2"), row.get("so2"),
+                 row.get("co"), row.get("ozone"), row.get("nh3"), row["last_update"])
+        except Exception as e:
+            print(f"Error inserting row for {row['station']}: {e}")
+    await conn.close()
+    print(f"Saved {len(rows)} rows to Postgres")
 
 if __name__ == "__main__":
     records = fetch()
     rows = reshape(records)
-    save(rows)
-    for row in rows:
-        print(row.get("station"), "| PM2.5:", row.get("PM2.5"), "| PM10:", row.get("PM10"))
+    asyncio.run(save_to_db(rows))

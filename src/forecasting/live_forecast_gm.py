@@ -7,7 +7,16 @@ import os
 from src.forecasting.aqi import pm25_to_aqi
 from src.data.live_weather import get_live_weather
 
-model = joblib.load("models/xgboost_gujarat_maharashtra.pkl")
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("live_forecast_gm")
+
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+model_path = os.path.join(PROJECT_ROOT, "models", "xgboost_gujarat_maharashtra.pkl")
+logger.info(f"Loading model from: {model_path}")
+model = joblib.load(model_path)
+logger.info(f"Model loaded successfully. Expected {len(model.feature_names_in_)} features.")
 
 # City coordinates mapping to estimate station locations
 CITY_COORDS = {
@@ -40,17 +49,19 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     c = 2 * np.arcsin(np.sqrt(a))
     return R * c
 
-stations_df = pd.read_csv("data/raw/india_air_quality/stations.csv")
-mh_gj_stations = stations_df[stations_df['State'].isin(['Maharashtra', 'Gujarat'])]
-station_city_map = dict(zip(mh_gj_stations['StationId'], mh_gj_stations['City']))
+station_city_map = {
+    'MH005': 'Mumbai', 'MH006': 'Mumbai', 'MH007': 'Pune', 'MH008': 'Pune',
+    'MH009': 'Nagpur', 'MH010': 'Nagpur', 'MH011': 'Thane', 'MH012': 'Navi Mumbai',
+    'MH013': 'Kalyan', 'MH014': 'Aurangabad', 'GJ001': 'Ahmedabad',
+}
 
 def find_nearest_station(lat, lon):
     min_dist = float('inf')
     nearest_station = None
-    
+
     # We only care about stations that the model actually knows about
     model_stations = [f.replace('StationId_', '') for f in model.feature_names_in_ if f.startswith('StationId_')]
-    
+
     for st_id in model_stations:
         city = station_city_map.get(st_id)
         if city in CITY_COORDS:
@@ -59,10 +70,10 @@ def find_nearest_station(lat, lon):
             if dist < min_dist:
                 min_dist = dist
                 nearest_station = st_id
-                
+
     if nearest_station is None:
         return model_stations[0] if model_stations else "Unknown"
-        
+
     return nearest_station
 
 def predict_pm25(pm25, lat, lon):
@@ -87,9 +98,12 @@ def predict_pm25(pm25, lat, lon):
     features["Latitude"] = lat
     features["Longitude"] = lon
 
+    weather_source = "Live Open-Meteo"
     try:
         weather = get_live_weather(lat, lon)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Weather API failed: {e}. Using default weather.")
+        weather_source = "Default values (API unreachable)"
         weather = {
             "temperature": 30,
             "humidity": 60,
@@ -136,10 +150,20 @@ def predict_pm25(pm25, lat, lon):
     features["no2_satellite"] = 0
 
     X = pd.DataFrame([features])
-    # Keep only features model expects
+    # Keep only features model expects in EXACT order
     X = X[model.feature_names_in_]
 
-    return float(model.predict(X)[0])
+    logger.info(f"Running predict_pm25 for Station={nearest_station}")
+    logger.info(f"Weather source: {weather_source}")
+    logger.info(f"Input feature count matches: {len(X.columns) == len(model.feature_names_in_)} (Expected {len(model.feature_names_in_)}, Got {len(X.columns)})")
+
+    try:
+        prediction = float(model.predict(X)[0])
+        logger.info(f"model.predict() executed successfully. Output: {prediction:.2f}")
+        return prediction
+    except Exception as e:
+        logger.error(f"model.predict() failed: {e}")
+        raise
 
 def get_live_forecast(pm25, lat, lon):
     pm25_1h = predict_pm25(pm25, lat, lon)
