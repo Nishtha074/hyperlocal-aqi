@@ -7,6 +7,7 @@ def get_live_aqi(lat, lon):
         f"?latitude={lat}"
         f"&longitude={lon}"
         "&current=pm2_5,pm10,us_aqi"
+        "&timezone=UTC"
     )
 
     response = requests.get(url, timeout=10)
@@ -17,5 +18,6 @@ def get_live_aqi(lat, lon):
     return {
         "aqi": current["us_aqi"],
         "pm25": current["pm2_5"],
-        "pm10": current["pm10"]
+        "pm10": current["pm10"],
+        "timestamp": current["time"]
     }

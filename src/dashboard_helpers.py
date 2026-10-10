@@ -40,6 +40,44 @@ def safe_float(value: Any, default: Optional[float] = None) -> Optional[float]:
     return numeric
 
 
+def forecast_response_for_dashboard(payload: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return None
+
+    raw_forecasts = payload.get("forecast")
+    raw_forecasts = raw_forecasts if isinstance(raw_forecasts, dict) else {}
+    forecasts = {}
+    for horizon in ("1h", "3h", "6h"):
+        raw_point = raw_forecasts.get(horizon)
+        raw_point = raw_point if isinstance(raw_point, dict) else {}
+        raw_range = raw_point.get("range")
+        prediction_range = None
+        if isinstance(raw_range, (list, tuple)) and len(raw_range) == 2:
+            low, high = (safe_float(value) for value in raw_range)
+            if low is not None and high is not None:
+                prediction_range = (low, high)
+        forecasts[horizon] = {
+            "value": safe_float(raw_point.get("value")),
+            "range": prediction_range,
+        }
+
+    note = payload.get("note")
+    note = note if isinstance(note, str) else ""
+    return {
+        "station": payload.get("station") if isinstance(payload.get("station"), str) else None,
+        "current_pm25": safe_float(payload.get("current_pm25")),
+        "forecasts": forecasts,
+        "generated_at": payload.get("generated_at") if isinstance(payload.get("generated_at"), str) else None,
+        "observation_source": payload.get("observation_source") or (
+            "Open-Meteo" if "open-meteo" in note.lower() else None
+        ),
+        "observation_timestamp": payload.get("observation_timestamp"),
+        "no_stored_history": "no stored history" in note.lower(),
+        "is_db_unavailable": payload.get("is_db_unavailable") is True,
+        "is_demo_fallback": payload.get("is_demo_fallback") is True,
+    }
+
+
 def validate_bad_data(df: pd.DataFrame) -> pd.DataFrame:
     """Return a cleaned copy that drops clearly invalid rows without crashing."""
     if df is None or df.empty:

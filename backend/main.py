@@ -1,28 +1,67 @@
+import asyncio
+import logging
+import math
+from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import asyncpg, joblib, os, numpy as np, pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
+from backend.alert_evaluator import evaluate_alerts
 
 load_dotenv()
-app = FastAPI(title="Hyperlocal AQI API")
+logger = logging.getLogger(__name__)
+
+
+async def _alert_evaluation_loop():
+    try:
+        interval_seconds = float(os.getenv("ALERT_EVALUATION_INTERVAL_SECONDS", "300"))
+        if not math.isfinite(interval_seconds) or interval_seconds <= 0:
+            raise ValueError
+    except ValueError:
+        logger.error("Invalid ALERT_EVALUATION_INTERVAL_SECONDS; using 300 seconds")
+        interval_seconds = 300
+
+    logger.info("Alert evaluation scheduler started; interval=%s seconds", interval_seconds)
+    while True:
+        try:
+            await evaluate_alerts()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("Scheduled alert evaluation failed (%s)", type(exc).__name__)
+        await asyncio.sleep(interval_seconds)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    evaluation_task = asyncio.create_task(_alert_evaluation_loop())
+    try:
+        yield
+    finally:
+        evaluation_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await evaluation_task
+
+
+app = FastAPI(title="Hyperlocal AQI API", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware, allow_origins=["*"],
     allow_methods=["*"], allow_headers=["*"]
 )
 
+try:
+    from backend.routes_alerts import router as alerts_router
+    app.include_router(alerts_router)
+except ImportError:
+    # Handle if running from different working directory
+    from routes_alerts import router as alerts_router
+    app.include_router(alerts_router)
+
 DB_URL = os.getenv("DATABASE_URL")
 
-# Make model loading robust in case they aren't generated yet
-try:
-    model_1h = joblib.load("models/xgboost_pm25_1h.pkl")
-    model_3h = joblib.load("models/xgboost_pm25_3h.pkl")
-    model_6h = joblib.load("models/xgboost_pm25_6h.pkl")
-except:
-    model_1h = None
-    model_3h = None
-    model_6h = None
+# Models are loaded within the respective forecasting modules (e.g., live_forecast_gm.py)
 
 async def get_conn():
     return await asyncpg.connect(DB_URL)
@@ -43,17 +82,9 @@ async def current():
         """)
         await conn.close()
         return [dict(r) for r in rows]
-    except Exception as e:
-        print(f"Database error in current(): {e}")
-        now = datetime.now().isoformat()
-        return [
-            {"station": "Bandra, Mumbai", "city": "Mumbai", "latitude": 19.0565, "longitude": 72.8362, "pm25": 85.2, "pm10": 110.5, "no2": 30.1, "fetched_at": now, "is_demo": True},
-            {"station": "Shivajinagar, Pune", "city": "Pune", "latitude": 18.5308, "longitude": 73.8474, "pm25": 65.4, "pm10": 80.2, "no2": 20.4, "fetched_at": now, "is_demo": True},
-            {"station": "Maninagar, Ahmedabad", "city": "Ahmedabad", "latitude": 22.9961, "longitude": 72.6025, "pm25": 105.1, "pm10": 140.3, "no2": 45.6, "fetched_at": now, "is_demo": True},
-            {"station": "Alkapuri, Vadodara", "city": "Vadodara", "latitude": 22.3117, "longitude": 73.1670, "pm25": 92.5, "pm10": 120.1, "no2": 35.8, "fetched_at": now, "is_demo": True},
-            {"station": "Varachha, Surat", "city": "Surat", "latitude": 21.2163, "longitude": 72.8647, "pm25": 78.9, "pm10": 95.4, "no2": 25.2, "fetched_at": now, "is_demo": True},
-            {"station": "Civil Lines, Nagpur", "city": "Nagpur", "latitude": 21.1540, "longitude": 79.0760, "pm25": 55.6, "pm10": 70.1, "no2": 15.3, "fetched_at": now, "is_demo": True},
-        ]
+    except Exception as exc:
+        logger.error("Database query for current observations failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Database unavailable. No live observations could be retrieved.")
 
 @app.get("/api/station/{station}/history")
 async def station_history(station: str, hours: int = 24):
@@ -83,54 +114,65 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.forecasting.live_forecast_gm import predict_pm25, CITY_COORDS, station_city_map
+from src.data.live_aqi import get_live_aqi
 
 @app.get("/api/forecast/{station}")
 async def forecast(station: str):
+    is_db_unavailable = False
     try:
         conn = await get_conn()
         # Need latitude and longitude as well for predict_pm25
         hist = await conn.fetch("""
-            SELECT pm25, latitude, longitude, fetched_at FROM cpcb_readings
+            SELECT pm25, latitude, longitude, last_update FROM cpcb_readings
             WHERE station = $1 ORDER BY fetched_at DESC LIMIT 1
         """, station)
         await conn.close()
-    except Exception as e:
-        print(f"Database error in forecast(): {e}")
+    except Exception as exc:
+        logger.error("Database query for forecast history failed (%s)", type(exc).__name__)
+        is_db_unavailable = True
         hist = None
 
     if not hist or len(hist) == 0:
-        # Fallback to ML model but with default PM2.5 starting value
-        curr = 65.4
-        # Determine lat/lon from station ID if possible
         city = station_city_map.get(station)
-        lat, lon = CITY_COORDS.get(city, (19.0760, 72.8777))
+        coordinates = CITY_COORDS.get(city)
+        if coordinates is None:
+            raise HTTPException(status_code=404, detail="No supported location mapping for this station.")
+        lat, lon = coordinates
 
-        is_demo_fallback = False
-        note = "Database unavailable. Forecast generated using XGBoost model from a baseline starting PM2.5 (65.4) and live weather."
+        # Fallback to Open-Meteo AQI since database is unavailable
+        try:
+            live_aqi = get_live_aqi(lat, lon)
+            curr = live_aqi["pm25"]
+            is_demo_fallback = False
+            if is_db_unavailable:
+                note = "Database unavailable. Observation sourced from Open-Meteo. Forecast generated using XGBoost model."
+            else:
+                note = "No stored history for this station; observation sourced from Open-Meteo. Forecast generated using XGBoost model."
+        except Exception as exc:
+            logger.error("Open-Meteo fallback failed (%s)", type(exc).__name__)
+            raise HTTPException(status_code=503, detail="Database unavailable and fallback API failed. Cannot start forecast without valid PM2.5 observation.")
 
         try:
             pred_1h = predict_pm25(curr, lat, lon)
             pred_3h = predict_pm25(pred_1h, lat, lon)
             pred_6h = predict_pm25(pred_3h, lat, lon)
-        except Exception as e:
-            print(f"Prediction error in fallback: {e}")
-            pred_1h = curr * 1.05
-            pred_3h = curr * 1.10
-            pred_6h = curr * 1.15
-            is_demo_fallback = True
-            note = "Database unavailable and ML inference failed. Returning demo percentages."
+        except Exception as exc:
+            logger.error("Forecast fallback inference failed (%s)", type(exc).__name__)
+            raise HTTPException(status_code=500, detail="ML inference failed.")
 
         margin = max(5, pred_1h * 0.15)
         return {
             "station": station,
             "current_pm25": curr,
+            "observation_source": "Open-Meteo",
+            "observation_timestamp": live_aqi.get("timestamp"),
             "forecast": {
                 "1h": {"value": round(pred_1h, 1), "range": [round(pred_1h - margin, 1), round(pred_1h + margin, 1)]},
                 "3h": {"value": round(pred_3h, 1), "range": [round(pred_3h - margin * 1.3, 1), round(pred_3h + margin * 1.3, 1)]},
                 "6h": {"value": round(pred_6h, 1), "range": [round(pred_6h - margin * 1.6, 1), round(pred_6h + margin * 1.6, 1)]},
             },
             "generated_at": datetime.now().isoformat(),
-            "is_db_unavailable": True,
+            "is_db_unavailable": is_db_unavailable,
             "is_demo_fallback": is_demo_fallback,
             "note": note
         }
@@ -146,19 +188,17 @@ async def forecast(station: str):
         pred_6h = predict_pm25(pred_3h, lat, lon)
         is_demo_fallback = False
         note = "Forecast generated successfully using XGBoost model."
-    except Exception as e:
-        print(f"Prediction error: {e}")
-        pred_1h = curr * 1.05
-        pred_3h = curr * 1.10
-        pred_6h = curr * 1.15
-        is_demo_fallback = True
-        note = "ML inference failed. Returning demo percentages."
+    except Exception as exc:
+        logger.error("Forecast inference failed (%s)", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="ML inference failed.")
 
     margin = max(5, pred_1h * 0.15)
 
     result = {
         "station": station,
         "current_pm25": curr,
+        "observation_source": "CPCB",
+        "observation_timestamp": row.get("last_update"),
         "forecast": {
             "1h": {"value": round(pred_1h, 1), "range": [round(pred_1h - margin, 1), round(pred_1h + margin, 1)]},
             "3h": {"value": round(pred_3h, 1), "range": [round(pred_3h - margin * 1.3, 1), round(pred_3h + margin * 1.3, 1)]},
@@ -178,8 +218,8 @@ async def forecast(station: str):
                 VALUES ($1,$2,$3,$4,$5,'xgboost_gm')
             """, station, horizon, val, val - margin, val + margin)
         await conn.close()
-    except Exception as e:
-        print(f"Error saving forecast: {e}")
+    except Exception as exc:
+        logger.error("Could not persist forecast (%s)", type(exc).__name__)
 
     return result
 
