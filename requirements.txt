@@ -20,3 +20,8 @@ streamlit-folium>=0.18.0
 
 # Testing & Quality Assurance
 pytest>=8.0.0
+
+# Data collection and database
+requests>=2.31.0
+asyncpg>=0.29.0
+python-dotenv>=1.0.0
