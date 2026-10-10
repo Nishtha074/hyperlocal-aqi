@@ -18,9 +18,16 @@ PARAMS = {
 DB_URL = os.getenv("DATABASE_URL")
 
 def fetch():
-    resp = requests.get(URL, params=PARAMS, headers=HEADERS)
-    resp.raise_for_status()
-    return resp.json().get("records", [])
+    try:
+        resp = requests.get(URL, params=PARAMS, headers=HEADERS, timeout=30)
+    except requests.RequestException as exc:
+        raise RuntimeError(f"CPCB request failed ({type(exc).__name__})") from None
+    if not resp.ok:
+        raise RuntimeError(f"CPCB request failed with HTTP {resp.status_code}")
+    try:
+        return resp.json().get("records", [])
+    except ValueError:
+        raise RuntimeError("CPCB response was not valid JSON") from None
 
 def reshape(records):
     stations = {}
