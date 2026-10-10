@@ -123,7 +123,7 @@ async def forecast(station: str):
         conn = await get_conn()
         # Need latitude and longitude as well for predict_pm25
         hist = await conn.fetch("""
-            SELECT pm25, latitude, longitude, fetched_at FROM cpcb_readings
+            SELECT pm25, latitude, longitude, last_update FROM cpcb_readings
             WHERE station = $1 ORDER BY fetched_at DESC LIMIT 1
         """, station)
         await conn.close()
@@ -164,6 +164,8 @@ async def forecast(station: str):
         return {
             "station": station,
             "current_pm25": curr,
+            "observation_source": "Open-Meteo",
+            "observation_timestamp": live_aqi.get("timestamp"),
             "forecast": {
                 "1h": {"value": round(pred_1h, 1), "range": [round(pred_1h - margin, 1), round(pred_1h + margin, 1)]},
                 "3h": {"value": round(pred_3h, 1), "range": [round(pred_3h - margin * 1.3, 1), round(pred_3h + margin * 1.3, 1)]},
@@ -195,6 +197,8 @@ async def forecast(station: str):
     result = {
         "station": station,
         "current_pm25": curr,
+        "observation_source": "CPCB",
+        "observation_timestamp": row.get("last_update"),
         "forecast": {
             "1h": {"value": round(pred_1h, 1), "range": [round(pred_1h - margin, 1), round(pred_1h + margin, 1)]},
             "3h": {"value": round(pred_3h, 1), "range": [round(pred_3h - margin * 1.3, 1), round(pred_3h + margin * 1.3, 1)]},

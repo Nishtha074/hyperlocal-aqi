@@ -34,6 +34,8 @@ def test_api_forecast_database_unavailable_uses_open_meteo(mock_live_aqi, mock_p
     assert "1h" in data["forecast"]
     assert "value" in data["forecast"]["1h"]
     assert data["current_pm25"] == 42.5
+    assert data["observation_source"] == "Open-Meteo"
+    assert data["observation_timestamp"] == "2026-10-10T12:00:00"
     assert "Database unavailable" in data["note"]
     mock_live_aqi.assert_called_once()
 
@@ -44,7 +46,7 @@ def test_api_forecast_empty_history_marks_database_available():
     mock_conn.fetchval.return_value = None
 
     with patch("backend.main.get_conn", new=AsyncMock(return_value=mock_conn)):
-        with patch("backend.main.get_live_aqi", return_value={"pm25": 42.5}):
+        with patch("backend.main.get_live_aqi", return_value={"pm25": 42.5, "timestamp": "2026-10-10T12:00:00"}):
             with patch("backend.main.predict_pm25", side_effect=[60.0, 65.0, 70.0]):
                 response = client.get("/api/forecast/MH009")
 
@@ -52,8 +54,33 @@ def test_api_forecast_empty_history_marks_database_available():
     assert response.status_code == 200
     assert data["is_db_unavailable"] is False
     assert data["is_demo_fallback"] is False
+    assert data["observation_source"] == "Open-Meteo"
+    assert data["observation_timestamp"] == "2026-10-10T12:00:00"
     assert data["note"] == "No stored history for this station; observation sourced from Open-Meteo. Forecast generated using XGBoost model."
     mock_conn.close.assert_awaited_once()
+
+
+def test_api_forecast_stored_cpcb_reading_returns_source_timestamp():
+    mock_conn = AsyncMock()
+    mock_conn.fetch.return_value = [
+        {
+            "pm25": 42.5,
+            "latitude": 21.1458,
+            "longitude": 79.0882,
+            "last_update": "2026-10-10 10:00:00",
+        }
+    ]
+
+    with patch("backend.main.get_conn", new=AsyncMock(return_value=mock_conn)):
+        with patch("backend.main.predict_pm25", side_effect=[60.0, 65.0, 70.0]):
+            response = client.get("/api/forecast/MH009")
+
+    data = response.json()
+    assert response.status_code == 200
+    assert data["current_pm25"] == 42.5
+    assert data["observation_source"] == "CPCB"
+    assert data["observation_timestamp"] == "2026-10-10 10:00:00"
+    assert mock_conn.fetch.call_args.args[0].find("last_update") >= 0
 
 
 def test_api_forecast_database_query_failure_keeps_unavailable_status():

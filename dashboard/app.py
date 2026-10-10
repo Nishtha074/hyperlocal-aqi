@@ -107,23 +107,23 @@ def get_snapshot_cached():
     return get_latest_air_quality_snapshot()
 
 
-location = get_current_location()
-live = get_live_aqi(location["lat"], location["lon"])
-
-forecast_map = get_live_forecast(
-    pm25=live["pm25"],
-    lat=location["lat"],    
-    lon=location["lon"]
-)
-
-snapshot = {
-    "location": location["city"],
-    "last_updated": pd.Timestamp.now(),
-    "current_aqi": live["aqi"],
-    "pm25": live["pm25"],
-    "pm10": live["pm10"],
-    "forecast_map": forecast_map
-}
+snapshot = {"last_updated": pd.NaT, "forecast_map": {}}
+if page in {"Home", "Personal Risk"}:
+    location = get_current_location()
+    live = get_live_aqi(location["lat"], location["lon"])
+    forecast_map = get_live_forecast(
+        pm25=live["pm25"],
+        lat=location["lat"],
+        lon=location["lon"],
+    )
+    snapshot = {
+        "location": location["city"],
+        "last_updated": pd.to_datetime(live.get("timestamp"), utc=True, errors="coerce"),
+        "current_aqi": live["aqi"],
+        "pm25": live["pm25"],
+        "pm10": live["pm10"],
+        "forecast_map": forecast_map,
+    }
 
 if page == "Home":
     st.title("Hyperlocal AQI Overview")
@@ -134,9 +134,6 @@ if page == "Home":
     pm10 = snapshot.get("pm10")
     location = snapshot.get("location", "Mumbai")
     last_updated = snapshot.get("last_updated")
-
-    if current_aqi is None and pm25 is not None:
-        current_aqi = pm25 * 2.0
 
     metric_cols = st.columns(4)
     metric_items = [("Current AQI", current_aqi), ("PM2.5", pm25), ("PM10", pm10), ("Location", location)]
@@ -172,13 +169,15 @@ if page == "Home":
     st.subheader("Current exposure summary")
     st.write(f"Risk level: **{risk['risk_level']}**")
     st.write(f"Personalized threshold: **{threshold:.0f} AQI**")
-    st.write(f"Last updated: **{last_updated.strftime('%Y-%m-%d %H:%M') if pd.notna(last_updated) else 'Not available'}**")
+    observed_at = last_updated.strftime("%Y-%m-%d %H:%M UTC") if pd.notna(last_updated) else "Not available"
+    st.write(f"Open-Meteo observation time: **{observed_at}**")
     st.write(f"Recommendation: **{risk_recommendation_for_level(risk['risk_level'])}**")
     st.caption("This is informational risk guidance and not medical advice.")
 
 
 elif page == "AQI Map":
     st.title("AQI Map")
+    st.caption("Historical mean PM2.5 across recorded station observations; values are not live readings.")
     if station_df.empty:
         st.warning(no_station_message())
     else:
@@ -193,7 +192,7 @@ elif page == "AQI Map":
         if heat_data:
             HeatMap(heat_data, radius=25, blur=15, min_opacity=0.4).add_to(m)
         for _, row in station_df.iterrows():
-            popup = f"{row.get('StationName', 'Station')}<br>PM2.5: {row.get('mean_PM25', 'N/A')}"
+            popup = f"{row.get('StationName', 'Station')}<br>Historical mean PM2.5: {row.get('mean_PM25', 'N/A')}"
             folium.Marker(
                 [row["Latitude"], row["Longitude"]],
                 popup=popup,
@@ -224,6 +223,13 @@ elif page == "Forecast":
                 st.caption("Observation source: demo fallback")
             else:
                 st.caption("Observation source: not specified by the API")
+
+            observation_timestamp = forecast_data.get("observation_timestamp")
+            if observation_timestamp:
+                timestamp_zone = " UTC" if forecast_data["observation_source"] == "Open-Meteo" else ""
+                st.caption(f"Observation time: {observation_timestamp}{timestamp_zone}")
+            else:
+                st.caption("Observation time: not supplied by the source")
 
             current_pm25 = forecast_data["current_pm25"]
             if current_pm25 is None:
@@ -423,4 +429,5 @@ elif page == "Model Info":
 
 
 st.sidebar.markdown("---")
-st.sidebar.info(f"Last project data snapshot: {snapshot.get('last_updated').strftime('%Y-%m-%d %H:%M') if pd.notna(snapshot.get('last_updated')) else 'Not available'}")
+if pd.notna(snapshot.get("last_updated")):
+    st.sidebar.info(f"Open-Meteo observation: {snapshot['last_updated'].strftime('%Y-%m-%d %H:%M UTC')}")

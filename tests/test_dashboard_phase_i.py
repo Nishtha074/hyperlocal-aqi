@@ -19,6 +19,8 @@ def test_forecast_response_for_dashboard_preserves_pm25_ranges_and_source():
             "6h": {"value": 105.5, "range": [85.9, 125.1]},
         },
         "generated_at": "2026-10-10T10:51:40",
+        "observation_source": "Open-Meteo",
+        "observation_timestamp": "2026-10-10T10:00",
         "is_db_unavailable": False,
         "is_demo_fallback": False,
         "note": "No stored history for this station; observation sourced from Open-Meteo. Forecast generated using XGBoost model.",
@@ -30,6 +32,7 @@ def test_forecast_response_for_dashboard_preserves_pm25_ranges_and_source():
     assert result["forecasts"]["3h"]["value"] == 94.9
     assert result["forecasts"]["6h"]["range"] == (85.9, 125.1)
     assert result["observation_source"] == "Open-Meteo"
+    assert result["observation_timestamp"] == "2026-10-10T10:00"
     assert result["no_stored_history"] is True
     assert result["generated_at"] == "2026-10-10T10:51:40"
 
@@ -43,6 +46,7 @@ def test_forecast_response_for_dashboard_handles_missing_fields():
     assert result["forecasts"]["3h"] == {"value": None, "range": None}
     assert result["generated_at"] is None
     assert result["observation_source"] is None
+    assert result["observation_timestamp"] is None
     assert result["no_stored_history"] is False
     assert forecast_response_for_dashboard(None) is None
 

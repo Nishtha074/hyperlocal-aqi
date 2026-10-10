@@ -68,7 +68,10 @@ def forecast_response_for_dashboard(payload: Any) -> Optional[Dict[str, Any]]:
         "current_pm25": safe_float(payload.get("current_pm25")),
         "forecasts": forecasts,
         "generated_at": payload.get("generated_at") if isinstance(payload.get("generated_at"), str) else None,
-        "observation_source": "Open-Meteo" if "open-meteo" in note.lower() else None,
+        "observation_source": payload.get("observation_source") or (
+            "Open-Meteo" if "open-meteo" in note.lower() else None
+        ),
+        "observation_timestamp": payload.get("observation_timestamp"),
         "no_stored_history": "no stored history" in note.lower(),
         "is_db_unavailable": payload.get("is_db_unavailable") is True,
         "is_demo_fallback": payload.get("is_demo_fallback") is True,
