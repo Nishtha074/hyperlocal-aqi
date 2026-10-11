@@ -21,9 +21,16 @@ logger.info(f"Model loaded successfully. Expected {len(model.feature_names_in_)}
 # City coordinates mapping to estimate station locations
 CITY_COORDS = {
     'Ahmedabad': (23.0225, 72.5714),
+    'Anand': (22.5645, 72.9289),
     'Ankleshwar': (21.6264, 73.0152),
+    'Bhavnagar': (21.7645, 72.1519),
+    'Bhuj': (23.2420, 69.6669),
     'Gandhinagar': (23.2156, 72.6369),
+    'Jamnagar': (22.4707, 70.0577),
+    'Mehsana': (23.5880, 72.3693),
     'Nandesari': (22.4042, 73.0991),
+    'Nadiad': (22.6916, 72.8634),
+    'Rajkot': (22.3039, 70.8022),
     'Vapi': (20.3893, 72.9106),
     'Vatva': (22.9511, 72.6074),
     'Aurangabad': (19.8762, 75.3433),

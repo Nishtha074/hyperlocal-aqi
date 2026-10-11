@@ -5,8 +5,12 @@ import os
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-import asyncpg
 from dotenv import load_dotenv
+
+try:
+    import asyncpg
+except ImportError:
+    asyncpg = None
 
 from src.data.live_aqi import get_live_aqi
 from src.forecasting.aqi import pm25_to_aqi
@@ -58,6 +62,9 @@ def _threshold_crossed(value, operator, threshold):
 
 
 async def evaluate_alerts():
+    if asyncpg is None:
+        logger.info("asyncpg is not installed. Skipping database alert evaluation.")
+        return
     if not DB_URL:
         logger.warning("Database not configured. Skipping alert evaluation.")
         return
@@ -91,7 +98,10 @@ async def evaluate_alerts():
                     }
                     continue
 
-                city = station_city_map.get(station, station)
+                city = station_city_map.get(station)
+                if city is None and station.startswith("LIVE_"):
+                    city = station[5:].replace("_", " ").title()
+                city = city or station
                 coordinates = CITY_COORDS.get(city)
                 if coordinates is None:
                     logger.warning("No observation coordinates configured for station %s", station)

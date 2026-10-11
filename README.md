@@ -6,10 +6,11 @@ AirPulse combines live air-quality observations, saved PM2.5 forecasting models,
 
 - `scripts/collect_cpcb.py` fetches CPCB station data from data.gov.in and appends it to PostgreSQL. `scripts/collect_weather.py` collects Open-Meteo weather for Pune.
 - `scripts/init_db.py` creates `cpcb_readings`, `weather_readings`, `forecasts`, `model_metrics`, `alerts`, and `alert_events`. It uses `CREATE ... IF NOT EXISTS`, preserves existing rows, and adds a unique alert/observation index for duplicate-event prevention.
-- `backend/main.py` serves current readings, station history, forecasts, risk, heatmap, model metrics, and alert APIs. Current observations come from PostgreSQL only. The forecast endpoint may use a timestamped Open-Meteo observation when the DB has no history for a mapped station; unknown stations are rejected rather than assigned another city's observation.
+- `backend/main.py` serves current readings, station history, forecasts, risk, heatmap, model metrics, and alert APIs. `/api/current` labels stored monitoring-station readings as CPCB and fills cities without CPCB readings with live Open-Meteo city estimates. If PostgreSQL is unavailable, it falls back to live regional Open-Meteo readings. The forecast endpoint may use a timestamped Open-Meteo observation when the DB has no history for a mapped station; unknown stations are rejected rather than assigned another city's observation.
 - `backend/routes_alerts.py` provides alert create/list/update/delete and event history. Alert events are removed when their alert is deleted (`ON DELETE CASCADE`).
 - `backend/alert_evaluator.py` reads enabled alerts and the latest CPCB source timestamp (`last_update`); if no CPCB PM measurement exists, it can request a timestamped Open-Meteo value for a mapped location. AQI alerts derive India AQI from PM2.5 using the project's conversion helper for either source. Missing, unparseable, stale, or unsupported observations are skipped. Events are inserted atomically and are unique by alert and observation timestamp.
 - `dashboard/app.py` gets the viewer's approximate location through IPinfo, live AQI/weather-related values through Open-Meteo, and forecast values from local model code. Its Alerts tab calls the FastAPI service at `http://localhost:8000`; the dashboard must not be used as the alert scheduler.
+- `aqi-platform/` contains the Next.js regional website, including the overview, live map, trends, city rankings, health guide, and alerts. The frontend calls the FastAPI service through the `/api` rewrite configured in `aqi-platform/next.config.ts`.
 
 ## Setup (Windows PowerShell)
 
@@ -24,6 +25,8 @@ python -m pip install -r backend/requirements.txt
 ```
 
 Edit `.env` locally. Set a valid PostgreSQL URL and, if collecting CPCB data, `DATA_GOV_API_KEY` and `DATA_GOV_RESOURCE_ID`. Never commit `.env` or paste its values into logs or reports. `.env.example` contains placeholders, not working credentials.
+
+The web frontend requires Node.js and npm. From the repository root, install its dependencies with `npm ci --prefix aqi-platform`.
 
 Environment variables:
 
@@ -55,7 +58,13 @@ python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 streamlit run dashboard/app.py
 ```
 
-The API docs are at `http://127.0.0.1:8000/docs`; Streamlit prints its local URL (normally `http://localhost:8501`). The API lifespan starts alert evaluation immediately, then repeats on the configured interval. Alerts therefore do not depend on Streamlit remaining open, but do depend on the API process and PostgreSQL being available.
+Start the web frontend in another terminal:
+
+```powershell
+npm run dev --prefix aqi-platform
+```
+
+The API docs are at `http://127.0.0.1:8000/docs`; Streamlit prints its local URL (normally `http://localhost:8501`), and Next.js prints its local URL (normally `http://localhost:3000`). The API lifespan starts alert evaluation immediately, then repeats on the configured interval. Alerts therefore do not depend on Streamlit remaining open, but do depend on the API process and PostgreSQL being available.
 
 Data collection commands, when provider credentials and PostgreSQL are ready:
 
@@ -74,11 +83,11 @@ The test suite includes unit and TestClient coverage using mocks. These tests do
 
 ## Locations and Model Scope
 
-The spatial forecasting code defines approximate city coordinates for Ahmedabad, Ankleshwar, Aurangabad, Chandrapur, Gandhinagar, Kalyan, Mumbai, Nagpur, Nashik, Navi Mumbai, Nandesari, Pune, Solapur, Surat, Thane, Vadodara, Vapi, and Vatva. The explicit station-to-city fallback map currently includes MH005-MH014 and GJ001. This is a model mapping, not a guarantee that every station currently has a fresh CPCB reading. CPCB collection defaults to Pune, Maharashtra; the dashboard's selectable city list depends on `data/processed/spatial_station_features.csv` and falls back to Mumbai when that file has no cities.
+The spatial forecasting code defines approximate city coordinates for Ahmedabad, Anand, Ankleshwar, Aurangabad, Bhavnagar, Bhuj, Chandrapur, Gandhinagar, Jamnagar, Kalyan, Mehsana, Mumbai, Nagpur, Nadiad, Nashik, Navi Mumbai, Nandesari, Pune, Rajkot, Solapur, Surat, Thane, Vadodara, Vapi, and Vatva. The explicit station-to-city fallback map currently includes MH005-MH014 and GJ001. This is a model mapping, not a guarantee that every location currently has a fresh CPCB reading. CPCB collection defaults to Pune, Maharashtra; the dashboard's selectable city list depends on `data/processed/spatial_station_features.csv` and falls back to Mumbai when that file has no cities.
 
 ## Limitations and Release State
 
-- Current API measurements are database-backed and return 503 when the query/connection fails; they are not replaced with demo measurements.
+- CPCB rows are actual stored station observations; Open-Meteo regional entries are city-level estimates, not CPCB sensor readings. `/api/current` returns 503 only when it cannot obtain any usable live observations.
 - Forecasting is for PM2.5 at 1h, 3h, and 6h. The API's displayed ranges use a percentage margin and are not calibrated confidence intervals. A fallback forecast is only available for a mapped location and a successful live Open-Meteo observation.
 - Alert comparison supports `pm25`, `pm10`, and `aqi`, and operators `>`, `>=`, `<`, and `<=`. AQI is derived from PM2.5 using the project's India AQI breakpoints. A real, fresh, timestamped observation is required. CPCB `last_update` is interpreted as Asia/Kolkata when timezone-naive; confirm source formatting with live CPCB data before relying on scheduled alerts.
 - The API scheduler is implemented and tested at startup with a mocked evaluator. Real scheduled persistence has not been verified because the configured PostgreSQL connection currently fails authentication (SQLSTATE `28P01`).
