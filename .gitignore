@@ -43,3 +43,11 @@ Thumbs.db
 # =========================
 *.tmp
 *.temp
+
+# =========================
+# Next.js frontend
+# =========================
+aqi-platform/.next/
+aqi-platform/node_modules/
+aqi-platform/tsconfig.tsbuildinfo
+aqi-platform/.env*
