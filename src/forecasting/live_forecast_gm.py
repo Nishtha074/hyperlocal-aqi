@@ -56,10 +56,24 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     c = 2 * np.arcsin(np.sqrt(a))
     return R * c
 
+# Station-to-city mapping derived from data/processed/spatial_station_features.csv
+# and data/external/mumbai_station_metadata.csv.
+# MH005-MH014 are all Mumbai CPCB monitoring stations; GJ001 is Ahmedabad.
 station_city_map = {
-    'MH005': 'Mumbai', 'MH006': 'Mumbai', 'MH007': 'Pune', 'MH008': 'Pune',
-    'MH009': 'Nagpur', 'MH010': 'Nagpur', 'MH011': 'Thane', 'MH012': 'Navi Mumbai',
-    'MH013': 'Kalyan', 'MH014': 'Aurangabad', 'GJ001': 'Ahmedabad',
+    'MH005': 'Mumbai', 'MH006': 'Mumbai', 'MH007': 'Mumbai', 'MH008': 'Mumbai',
+    'MH009': 'Mumbai', 'MH010': 'Mumbai', 'MH011': 'Mumbai', 'MH012': 'Mumbai',
+    'MH013': 'Mumbai', 'MH014': 'Mumbai', 'GJ001': 'Ahmedabad',
+}
+
+# Per-station coordinates from spatial_station_features.csv / mumbai_station_metadata.csv.
+# Used in preference to city-centroid coordinates for forecast and alert evaluation.
+STATION_COORDS = {
+    'MH007': (19.1008, 72.8746),  # Chhatrapati Shivaji Intl. Airport (T2)
+    'MH008': (18.9100, 72.8200),  # Colaba
+    'MH009': (19.0863, 72.8888),  # Kurla
+    'MH010': (19.1375, 72.9151),  # Powai
+    'MH011': (19.0418, 72.8652),  # Sion
+    'MH014': (18.9936, 72.8128),  # Worli
 }
 
 def find_nearest_station(lat, lon):
@@ -70,13 +84,18 @@ def find_nearest_station(lat, lon):
     model_stations = [f.replace('StationId_', '') for f in model.feature_names_in_ if f.startswith('StationId_')]
 
     for st_id in model_stations:
-        city = station_city_map.get(st_id)
-        if city in CITY_COORDS:
+        # Prefer per-station coordinates; fall back to city centroid
+        if st_id in STATION_COORDS:
+            st_lat, st_lon = STATION_COORDS[st_id]
+        else:
+            city = station_city_map.get(st_id)
+            if city not in CITY_COORDS:
+                continue
             st_lat, st_lon = CITY_COORDS[city]
-            dist = haversine_distance(lat, lon, st_lat, st_lon)
-            if dist < min_dist:
-                min_dist = dist
-                nearest_station = st_id
+        dist = haversine_distance(lat, lon, st_lat, st_lon)
+        if dist < min_dist:
+            min_dist = dist
+            nearest_station = st_id
 
     if nearest_station is None:
         return model_stations[0] if model_stations else "Unknown"

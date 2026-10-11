@@ -36,8 +36,20 @@ async def init_db():
                 ozone FLOAT,
                 nh3 FLOAT,
                 last_update VARCHAR(255),
-                fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                source VARCHAR(50)
             );
+        """)
+
+        # Add source column to pre-existing tables that lack it
+        await conn.execute("""
+            ALTER TABLE cpcb_readings ADD COLUMN IF NOT EXISTS source VARCHAR(50);
+        """)
+
+        # Unique index to prevent duplicate observations per station+timestamp
+        await conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_cpcb_station_last_update
+            ON cpcb_readings (station, last_update);
         """)
 
         # Create weather_readings table
@@ -65,8 +77,43 @@ async def init_db():
                 lower_bound FLOAT,
                 upper_bound FLOAT,
                 model_used VARCHAR(100),
-                generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                predicted_at TIMESTAMP,
+                observation_timestamp VARCHAR(255)
             );
+        """)
+
+        # Add new columns to pre-existing forecasts rows that lack them
+        await conn.execute("""
+            ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS predicted_at TIMESTAMP;
+        """)
+        await conn.execute("""
+            ALTER TABLE forecasts ADD COLUMN IF NOT EXISTS observation_timestamp VARCHAR(255);
+        """)
+
+        # Backfill predicted_at for existing rows that have a parseable horizon
+        # and a non-null generated_at.  Rows with unrecognised horizons are left NULL.
+        await conn.execute("""
+            UPDATE forecasts
+            SET predicted_at = CASE horizon
+                WHEN '1h' THEN generated_at + INTERVAL '1 hour'
+                WHEN '3h' THEN generated_at + INTERVAL '3 hours'
+                WHEN '6h' THEN generated_at + INTERVAL '6 hours'
+            END
+            WHERE predicted_at IS NULL
+              AND generated_at IS NOT NULL
+              AND horizon IN ('1h', '3h', '6h');
+        """)
+
+        # Unique index: one forecast row per (station, horizon, predicted_at).
+        # This allows the same station+horizon to be stored for different target
+        # times (e.g. hourly runs) while preventing duplicate rows from repeated
+        # requests within the same minute.  predicted_at may be NULL for legacy
+        # rows; NULL values are not considered equal by unique indexes in
+        # PostgreSQL, so those rows are never blocked by this constraint.
+        await conn.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS uq_forecasts_station_horizon_predicted_at
+            ON forecasts (station, horizon, predicted_at);
         """)
 
         # Create model_metrics table

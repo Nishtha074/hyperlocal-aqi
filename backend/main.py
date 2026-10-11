@@ -1,3 +1,4 @@
+from _pytest import pytester_assertions
 import asyncio
 import logging
 import math
@@ -75,9 +76,10 @@ async def get_conn():
 
 
 def _station_for_city(city_name: str) -> str:
-    """Keep a stable identifier when the API is running without PostgreSQL."""
-    known = next((station for station, city in station_city_map.items() if city == city_name), None)
-    return known or f"LIVE_{city_name.upper().replace(' ', '_')}"
+    """Return a stable LIVE_ identifier for a synthetic Open-Meteo city entry.
+    Always uses the LIVE_ prefix so synthetic entries are never confused with
+    real CPCB station IDs."""
+    return f"LIVE_{city_name.upper().replace(' ', '_')}"
 
 
 def _city_for_station(station: str) -> str | None:
@@ -139,7 +141,7 @@ async def current():
         conn = await get_conn()
         rows = await conn.fetch("""
             SELECT DISTINCT ON (station) station, city, latitude, longitude,
-                   pm25, pm10, no2, so2, co, ozone, fetched_at
+                   pm25, pm10, no2, so2, co, ozone, fetched_at, source
             FROM cpcb_readings
             ORDER BY station, fetched_at DESC
         """)
@@ -152,8 +154,21 @@ async def current():
     known_cities = set()
     for row in rows:
         observation = dict(row)
-        observation["source"] = "CPCB"
-        observation["is_live_weather"] = False
+        raw_source = observation.get("source")
+        if raw_source:
+            s_norm = str(raw_source).strip()
+            if s_norm.casefold() in ("open-meteo", "openmeteo"):
+                src = "Open-Meteo"
+            elif s_norm.casefold() == "cpcb":
+                src = "CPCB"
+            else:
+                src = s_norm
+        elif str(observation.get("station", "")).startswith("LIVE_"):
+            src = "Open-Meteo"
+        else:
+            src = "CPCB"
+        observation["source"] = src
+        observation["is_live_weather"] = (src == "Open-Meteo")
         observations.append(observation)
         if observation.get("city"):
             known_cities.add(str(observation["city"]).strip().casefold())
@@ -178,6 +193,9 @@ async def current():
 @app.get("/api/station/{station}/history")
 async def station_history(station: str, hours: int = 24):
     hours = max(1, min(hours, 168))
+    # LIVE_ IDs are synthetic Open-Meteo city entries; they have no stored history.
+    if station.startswith("LIVE_") or station not in station_city_map:
+        raise HTTPException(status_code=404, detail="No stored history for this station.")
     try:
         conn = await get_conn()
         rows = await conn.fetch("""
@@ -185,21 +203,15 @@ async def station_history(station: str, hours: int = 24):
             WHERE station = $1 ORDER BY fetched_at DESC LIMIT $2
         """, station, hours)
         await conn.close()
-        if rows:
-            return [dict(r) for r in rows][::-1]
     except Exception as exc:
-        logger.warning("History query failed (%s); deriving a recent trend from the live reading.", type(exc).__name__)
-    observation = next((item for item in await live_regional_observations() if item["station"] == station), None)
-    if observation is None:
-        raise HTTPException(status_code=404, detail="Unknown station")
-    now = datetime.now(timezone.utc)
-    base = observation["pm25"]
-    return [{
-        "pm25": round(max(0, base + math.sin((index - hours) / 3) * max(2, base * .12)), 1),
-        "pm10": round(max(0, observation["pm10"] + math.sin((index - hours) / 3) * 5), 1),
-        "no2": None, "fetched_at": (now - timedelta(hours=hours - index)).isoformat(),
-        "source": "derived from current Open-Meteo observation",
-    } for index in range(hours)]
+        logger.warning("History query failed for %s (%s)", station, type(exc).__name__)
+        raise HTTPException(
+            status_code=503,
+            detail="Database unavailable; stored history cannot be retrieved.",
+        )
+    if not rows:
+        return []
+    return [dict(r) for r in rows][::-1]
 
 def build_features(history_df, weather_df):
     latest = history_df.iloc[-1]
@@ -218,19 +230,93 @@ def build_features(history_df, weather_df):
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.forecasting.live_forecast_gm import predict_pm25, CITY_COORDS, station_city_map
+from src.forecasting.live_forecast_gm import predict_pm25, CITY_COORDS, STATION_COORDS, station_city_map
 from src.data.live_aqi import get_live_aqi
+
+_HORIZON_DELTA = {"1h": timedelta(hours=1), "3h": timedelta(hours=3), "6h": timedelta(hours=6)}
+
+
+async def _persist_forecasts(
+    station: str,
+    generated_at: datetime,
+    obs_ts,
+    pred_1h: float,
+    pred_3h: float,
+    pred_6h: float,
+    margin: float,
+) -> None:
+    """Insert or update the three forecast rows for one request.
+
+    Failures are logged and swallowed so the caller's API response is unaffected.
+    predicted_at is computed from generated_at (captured before the response is
+    built) so the stored value matches the response's generated_at field.
+    """
+    if not station:
+        return
+    if generated_at.tzinfo is not None:
+        generated_at = generated_at.astimezone(timezone.utc).replace(tzinfo=None)
+    obs_ts_str = str(obs_ts) if obs_ts is not None else None
+    try:
+        pred_1h = float(pred_1h) if math.isfinite(float(pred_1h)) else 0.0
+        pred_3h = float(pred_3h) if math.isfinite(float(pred_3h)) else 0.0
+        pred_6h = float(pred_6h) if math.isfinite(float(pred_6h)) else 0.0
+        margin = float(margin) if math.isfinite(float(margin)) else 5.0
+    except (TypeError, ValueError):
+        pred_1h, pred_3h, pred_6h, margin = 0.0, 0.0, 0.0, 5.0
+
+    try:
+        conn = await get_conn()
+        try:
+            for horizon, val in (("1h", pred_1h), ("3h", pred_3h), ("6h", pred_6h)):
+                predicted_at = generated_at + _HORIZON_DELTA[horizon]
+                await conn.execute(
+                    """
+                    INSERT INTO forecasts
+                        (station, horizon, predicted_pm25, lower_bound, upper_bound,
+                         model_used, generated_at, predicted_at, observation_timestamp)
+                    VALUES ($1, $2, $3, $4, $5, 'xgboost_gm', $6, $7, $8)
+                    ON CONFLICT (station, horizon, predicted_at)
+                    DO UPDATE SET
+                        predicted_pm25       = EXCLUDED.predicted_pm25,
+                        lower_bound          = EXCLUDED.lower_bound,
+                        upper_bound          = EXCLUDED.upper_bound,
+                        model_used           = EXCLUDED.model_used,
+                        generated_at         = EXCLUDED.generated_at,
+                        observation_timestamp = EXCLUDED.observation_timestamp
+                    """,
+                    station, horizon, val, val - margin, val + margin,
+                    generated_at, predicted_at, obs_ts_str,
+                )
+        finally:
+            await conn.close()
+    except Exception as exc:
+        logger.error("Could not persist forecast for %s (%s)", station, type(exc).__name__)
+
 
 @app.get("/api/forecast/{station}")
 async def forecast(station: str):
     is_db_unavailable = False
     try:
         conn = await get_conn()
-        # Need latitude and longitude as well for predict_pm25
+        # Need latitude, longitude, last_update, and source
         hist = await conn.fetch("""
-            SELECT pm25, latitude, longitude, last_update FROM cpcb_readings
-            WHERE station = $1 ORDER BY fetched_at DESC LIMIT 1
-        """, station)
+        SELECT pm25, latitude, longitude, last_update, source
+        FROM cpcb_readings
+        WHERE station = $1
+        AND pm25 IS NOT NULL
+        AND (
+            CASE
+                WHEN last_update IS NULL THEN FALSE
+                WHEN last_update::text ~ '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}'
+                    THEN last_update::timestamp <=
+                        (NOW() AT TIME ZONE 'UTC')
+                ELSE TRUE
+            END
+        )
+        ORDER BY fetched_at DESC
+        LIMIT 1
+    """, station)
+
         await conn.close()
     except Exception as exc:
         logger.error("Database query for forecast history failed (%s)", type(exc).__name__)
@@ -239,14 +325,23 @@ async def forecast(station: str):
 
     if not hist or len(hist) == 0:
         city = _city_for_station(station)
-        coordinates = CITY_COORDS.get(city)
-        if coordinates is None:
+        city_coords = CITY_COORDS.get(city)
+        if city_coords is None:
             raise HTTPException(status_code=404, detail="No supported location mapping for this station.")
-        lat, lon = coordinates
+
+        # Open-Meteo is queried at the city centroid (its native resolution).
+        obs_lat, obs_lon = city_coords
+        # Model inference uses per-station coordinates when available so that
+        # find_nearest_station activates the correct StationId one-hot feature.
+        # For stations without individual coordinates, fall back to the city centroid.
+        model_lat, model_lon = STATION_COORDS.get(station, city_coords)
+        # The observation is always a city-level Open-Meteo estimate regardless
+        # of whether per-station model coordinates are available.
+        observation_location = "city-level estimate"
 
         # Fallback to Open-Meteo AQI since database is unavailable
         try:
-            live_aqi = get_live_aqi(lat, lon)
+            live_aqi = get_live_aqi(obs_lat, obs_lon)
             curr = live_aqi["pm25"]
             is_demo_fallback = False
             if is_db_unavailable:
@@ -258,26 +353,33 @@ async def forecast(station: str):
             raise HTTPException(status_code=503, detail="Database unavailable and fallback API failed. Cannot start forecast without valid PM2.5 observation.")
 
         try:
-            pred_1h = predict_pm25(curr, lat, lon)
-            pred_3h = predict_pm25(pred_1h, lat, lon)
-            pred_6h = predict_pm25(pred_3h, lat, lon)
+            pred_1h = predict_pm25(curr, model_lat, model_lon)
+            pred_3h = predict_pm25(pred_1h, model_lat, model_lon)
+            pred_6h = predict_pm25(pred_3h, model_lat, model_lon)
         except Exception as exc:
             logger.error("Forecast fallback inference failed (%s); using persistence forecast.", type(exc).__name__)
             pred_1h, pred_3h, pred_6h = curr, curr, curr
-            note = "Live observation is available; the ML model is temporarily unavailable, so the outlook holds the latest reading constant."
+            note = "Live observation is available; the ML model is temporarily unavailable. The outlook holds the latest reading constant (persistence forecast)."
 
         margin = max(5, pred_1h * 0.15)
+        generated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        obs_ts = live_aqi.get("timestamp")
+        await _persist_forecasts(
+            station, generated_at, obs_ts,
+            pred_1h, pred_3h, pred_6h, margin,
+        )
         return {
             "station": station,
             "current_pm25": curr,
             "observation_source": "Open-Meteo",
-            "observation_timestamp": live_aqi.get("timestamp"),
+            "observation_location": observation_location,
+            "observation_timestamp": obs_ts,
             "forecast": {
                 "1h": {"value": round(pred_1h, 1), "range": [round(pred_1h - margin, 1), round(pred_1h + margin, 1)]},
                 "3h": {"value": round(pred_3h, 1), "range": [round(pred_3h - margin * 1.3, 1), round(pred_3h + margin * 1.3, 1)]},
                 "6h": {"value": round(pred_6h, 1), "range": [round(pred_6h - margin * 1.6, 1), round(pred_6h + margin * 1.6, 1)]},
             },
-            "generated_at": datetime.now().isoformat(),
+            "generated_at": generated_at.isoformat(),
             "is_db_unavailable": is_db_unavailable,
             "is_demo_fallback": is_demo_fallback,
             "note": note
@@ -287,6 +389,22 @@ async def forecast(station: str):
     curr = float(row["pm25"])
     lat = float(row["latitude"]) if row["latitude"] else 19.0760
     lon = float(row["longitude"]) if row["longitude"] else 72.8777
+
+    raw_source = row.get("source")
+    if raw_source:
+        s_norm = str(raw_source).strip()
+        if s_norm.casefold() in ("open-meteo", "openmeteo"):
+            obs_source = "Open-Meteo"
+        elif s_norm.casefold() == "cpcb":
+            obs_source = "CPCB"
+        else:
+            obs_source = s_norm
+    elif str(station).startswith("LIVE_"):
+        obs_source = "Open-Meteo"
+    else:
+        obs_source = "CPCB"
+
+    obs_location = "city-level estimate" if obs_source == "Open-Meteo" else "station coordinates"
 
     try:
         pred_1h = predict_pm25(curr, lat, lon)
@@ -299,35 +417,28 @@ async def forecast(station: str):
         raise HTTPException(status_code=500, detail="ML inference failed.")
 
     margin = max(5, pred_1h * 0.15)
-
-    result = {
+    generated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    obs_ts = row.get("last_update")
+    await _persist_forecasts(
+        station, generated_at, obs_ts,
+        pred_1h, pred_3h, pred_6h, margin,
+    )
+    return {
         "station": station,
         "current_pm25": curr,
-        "observation_source": "CPCB",
-        "observation_timestamp": row.get("last_update"),
+        "observation_source": obs_source,
+        "observation_location": obs_location,
+        "observation_timestamp": obs_ts,
         "forecast": {
             "1h": {"value": round(pred_1h, 1), "range": [round(pred_1h - margin, 1), round(pred_1h + margin, 1)]},
             "3h": {"value": round(pred_3h, 1), "range": [round(pred_3h - margin * 1.3, 1), round(pred_3h + margin * 1.3, 1)]},
             "6h": {"value": round(pred_6h, 1), "range": [round(pred_6h - margin * 1.6, 1), round(pred_6h + margin * 1.6, 1)]},
         },
-        "generated_at": datetime.now().isoformat(),
+        "generated_at": generated_at.isoformat(),
         "is_db_unavailable": False,
         "is_demo_fallback": is_demo_fallback,
         "note": note
     }
-
-    try:
-        conn = await get_conn()
-        for horizon, val in [("1h", pred_1h), ("3h", pred_3h), ("6h", pred_6h)]:
-            await conn.execute("""
-                INSERT INTO forecasts (station, horizon, predicted_pm25, lower_bound, upper_bound, model_used)
-                VALUES ($1,$2,$3,$4,$5,'xgboost_gm')
-            """, station, horizon, val, val - margin, val + margin)
-        await conn.close()
-    except Exception as exc:
-        logger.error("Could not persist forecast (%s)", type(exc).__name__)
-
-    return result
 
 @app.get("/api/heatmap")
 async def heatmap():
