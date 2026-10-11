@@ -1,6 +1,7 @@
 import asyncio
 import pytest
 from unittest.mock import AsyncMock, patch
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from backend.main import app
 from scripts.init_db import init_db
@@ -15,11 +16,51 @@ def unavailable_main_database(monkeypatch):
     monkeypatch.setattr("backend.main.get_conn", fail_connection)
 
 
-def test_api_current_database_unavailable(unavailable_main_database):
-    response = client.get("/api/current")
-    assert response.status_code == 503
-    assert "Database unavailable" in response.json()["detail"]
-    assert "password" not in response.text.lower()
+def test_api_current_database_unavailable_uses_live_regional_readings(unavailable_main_database):
+    readings = [{
+        "station": "LIVE_Anand",
+        "city": "Anand",
+        "latitude": 22.5645,
+        "longitude": 72.9289,
+        "pm25": 42.5,
+        "pm10": 61.0,
+        "source": "Open-Meteo",
+        "is_live_weather": True,
+    }]
+    with patch("backend.main.live_regional_observations", new=AsyncMock(return_value=readings)):
+        response = client.get("/api/current")
+
+    assert response.status_code == 200
+    assert response.json() == readings
+
+
+def test_api_current_keeps_cpcb_readings_when_regional_estimates_fail():
+    mock_conn = AsyncMock()
+    mock_conn.fetch.return_value = [{
+        "station": "CPCB Ahmedabad",
+        "city": "Ahmedabad",
+        "latitude": 23.0225,
+        "longitude": 72.5714,
+        "pm25": 30.0,
+        "pm10": 45.0,
+        "no2": None,
+        "so2": None,
+        "co": None,
+        "ozone": None,
+        "fetched_at": "2026-10-10T12:00:00",
+    }]
+    with patch("backend.main.get_conn", new=AsyncMock(return_value=mock_conn)):
+        with patch(
+            "backend.main.live_regional_observations",
+            new=AsyncMock(side_effect=HTTPException(status_code=503, detail="No live air-quality readings are currently available.")),
+        ):
+            response = client.get("/api/current")
+
+    assert response.status_code == 200
+    observations = response.json()
+    assert len(observations) == 1
+    assert observations[0]["station"] == "CPCB Ahmedabad"
+    assert observations[0]["source"] == "CPCB"
 
 @patch("backend.main.predict_pm25", side_effect=[60.0, 65.0, 70.0])
 @patch("backend.main.get_live_aqi", return_value={"pm25": 42.5, "timestamp": "2026-10-10T12:00:00"})

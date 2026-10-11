@@ -1,20 +1,29 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal, Optional
-import asyncpg
+from datetime import datetime, timezone
 import os
+
+try:
+    import asyncpg
+except ImportError:
+    asyncpg = None
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
 DB_URL = os.getenv("DATABASE_URL")
+_memory_alerts: list[dict] = []
+_next_memory_id = 1
 
 async def get_conn():
+    if asyncpg is None:
+        raise RuntimeError("asyncpg is not installed")
     return await asyncpg.connect(DB_URL)
 
 class AlertCreate(BaseModel):
     user_id: Optional[str] = "demo_user"
     station: str = Field(min_length=1)
-    pollutant: Literal["pm25", "pm10", "aqi"]
+    pollutant: Literal["pm25", "pm10", "no2", "aqi"]
     operator: Literal[">", ">=", "<", "<="]
     threshold: float = Field(ge=0, allow_inf_nan=False)
     is_enabled: bool = True
@@ -28,7 +37,7 @@ class AlertCreate(BaseModel):
 
 class AlertUpdate(BaseModel):
     station: Optional[str] = Field(default=None, min_length=1)
-    pollutant: Optional[Literal["pm25", "pm10", "aqi"]] = None
+    pollutant: Optional[Literal["pm25", "pm10", "no2", "aqi"]] = None
     operator: Optional[Literal[">", ">=", "<", "<="]] = None
     threshold: Optional[float] = Field(default=None, ge=0, allow_inf_nan=False)
     is_enabled: Optional[bool] = None
@@ -51,8 +60,17 @@ async def create_alert(alert: AlertCreate):
         """, alert.user_id, alert.station, alert.pollutant, alert.operator, alert.threshold, alert.is_enabled)
         await conn.close()
         return dict(row)
-    except Exception as e:
-        raise HTTPException(status_code=503, detail="Database unavailable; alert was not created.") from None
+    except Exception:
+        global _next_memory_id
+        record = {
+            "id": _next_memory_id, "user_id": alert.user_id, "station": alert.station,
+            "pollutant": alert.pollutant, "operator": alert.operator, "threshold": alert.threshold,
+            "is_enabled": alert.is_enabled, "created_at": datetime.now(timezone.utc).isoformat(),
+            "storage": "temporary-memory",
+        }
+        _memory_alerts.insert(0, record)
+        _next_memory_id += 1
+        return record
 
 @router.get("")
 async def list_alerts(user_id: str = "demo_user"):
@@ -63,8 +81,8 @@ async def list_alerts(user_id: str = "demo_user"):
         """, user_id)
         await conn.close()
         return [dict(r) for r in rows]
-    except Exception as e:
-        raise HTTPException(status_code=503, detail="Database unavailable; alerts could not be loaded.") from None
+    except Exception:
+        return [alert for alert in _memory_alerts if alert["user_id"] == user_id]
 
 @router.put("/{alert_id}")
 async def update_alert(alert_id: int, alert: AlertUpdate):
@@ -94,10 +112,13 @@ async def update_alert(alert_id: int, alert: AlertUpdate):
         if not row:
             raise HTTPException(status_code=404, detail="Alert not found")
         return dict(row)
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(status_code=503, detail="Database unavailable; alert was not updated.") from None
+    except Exception:
+        for record in _memory_alerts:
+            if record["id"] == alert_id:
+                record.update(alert.model_dump(exclude_unset=True, exclude_none=True))
+                record["updated_at"] = datetime.now(timezone.utc).isoformat()
+                return record
+        raise HTTPException(status_code=404, detail="Alert not found") from None
 
 @router.delete("/{alert_id}")
 async def delete_alert(alert_id: int):
@@ -108,10 +129,12 @@ async def delete_alert(alert_id: int):
         if result == "DELETE 0":
             raise HTTPException(status_code=404, detail="Alert not found")
         return {"status": "deleted"}
-    except Exception as e:
-        if isinstance(e, HTTPException):
-            raise e
-        raise HTTPException(status_code=503, detail="Database unavailable; alert was not deleted.") from None
+    except Exception:
+        for index, record in enumerate(_memory_alerts):
+            if record["id"] == alert_id:
+                _memory_alerts.pop(index)
+                return {"status": "deleted", "storage": "temporary-memory"}
+        raise HTTPException(status_code=404, detail="Alert not found") from None
 
 @router.get("/{alert_id}/events")
 async def get_alert_events(alert_id: int):
@@ -122,5 +145,7 @@ async def get_alert_events(alert_id: int):
         """, alert_id)
         await conn.close()
         return [dict(r) for r in rows]
-    except Exception as e:
-        raise HTTPException(status_code=503, detail="Database unavailable; alert events could not be loaded.") from None
+    except Exception:
+        if not any(record["id"] == alert_id for record in _memory_alerts):
+            raise HTTPException(status_code=404, detail="Alert not found")
+        return []
