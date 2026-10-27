@@ -4,7 +4,7 @@ import {
   Shield, ShieldCheck, CheckCircle, HeartPulse, Sparkles,
   Stethoscope, Clock, Leaf, Activity, AlertTriangle,
   MapPin, ShieldAlert, Info, Wind, Droplets, Thermometer,
-  Timer, Mask, Home, Sunrise
+  Timer, Home, Sunrise
 } from "lucide-react";
 import { fetchLiveOrFallbackStations, FALLBACK_STATIONS, ExtendedStation, calculateAQI, getAQIMeta } from "@/lib/dataService";
 
@@ -315,7 +315,7 @@ export default function ProfilePage() {
               </div>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Mask size={16} color={riskColor} />
+                  <Shield size={16} color={riskColor} />
                   <span style={{ fontSize: 11.5, fontWeight: 700, color: "#334155" }}>Respirator Advice</span>
                 </div>
                 <span style={{ fontSize: 11.5, fontWeight: 700, color: "#0f172a", textAlign: "right", maxWidth: 180 }}>
