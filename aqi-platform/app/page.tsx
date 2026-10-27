@@ -273,11 +273,8 @@ export default function OverviewPage() {
         ref={heroRef}
         style={{
           position: "relative",
-          minHeight: "86vh",
-          display: "flex",
-          alignItems: "center",
+          padding: "48px 36px 36px",
           overflow: "hidden",
-          padding: "0 36px",
         }}
         aria-label="Hero section"
       >
@@ -296,12 +293,11 @@ export default function OverviewPage() {
           position: "relative", zIndex: 10,
           display: "grid",
           gridTemplateColumns: "1.1fr 0.9fr",
-          gap: 50,
+          gap: 40,
           alignItems: "center",
           maxWidth: 1440,
           margin: "0 auto",
           width: "100%",
-          padding: "60px 0 40px",
         }}>
           {/* Left: Text & Interactive controls */}
           <div className="fade-in">
@@ -336,7 +332,7 @@ export default function OverviewPage() {
             </div>
 
             {/* Main headline */}
-            <h1 className="hero-title" style={{ marginBottom: 18 }}>
+            <h1 className="hero-title" style={{ marginBottom: 14 }}>
               <span style={{
                 display: "block",
                 color: "var(--text-primary)",
@@ -357,12 +353,12 @@ export default function OverviewPage() {
             </h1>
 
             <p style={{
-              fontSize: 16,
+              fontSize: 14,
               color: "var(--text-secondary)",
-              lineHeight: 1.65,
+              lineHeight: 1.6,
               fontWeight: 400,
-              maxWidth: 520,
-              marginBottom: 28,
+              maxWidth: 480,
+              marginBottom: 24,
             }}>
               Monitor micro-scale pollution surges across Western India with sub-kilometer GIS resolution, modular drag-and-drop dashboarding, and XGBoost machine-learning forecasts.
             </p>
@@ -465,9 +461,9 @@ export default function OverviewPage() {
           </div>
 
           {/* Right: Globe + live telemetry card */}
-          <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 20 }}>
+          <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", gap: 18 }}>
             {/* Holographic 3D Globe */}
-            <div className="float" style={{ width: "100%", maxWidth: 440, aspectRatio: "1", position: "relative" }}>
+            <div className="float" style={{ width: "100%", maxWidth: 360, aspectRatio: "1", position: "relative" }}>
               <AtmosphericGlobe aqiColor={meta?.color ?? "var(--mint)"} aqi={aqi ?? 0} />
             </div>
 
@@ -476,8 +472,8 @@ export default function OverviewPage() {
               <div
                 className="glass-card fade-in"
                 style={{
-                  padding: "18px 22px",
-                  width: "100%", maxWidth: 440,
+                  padding: "14px 18px",
+                  width: "100%", maxWidth: 360,
                   border: `1px solid var(--border)`,
                   boxShadow: "var(--sh-panel)",
                   background: "var(--bg-card)",
@@ -527,21 +523,32 @@ export default function OverviewPage() {
           </div>
         </div>
 
-        {/* Scroll cue */}
-        <button
-          onClick={scrollToContent}
-          aria-label="Scroll to interactive intel"
-          style={{
-            position: "absolute", bottom: 18, left: "50%",
-            transform: "translateX(-50%)",
-            background: "none", border: "none", cursor: "pointer",
-            display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-            color: "var(--text-muted)",
-          }}
-        >
-          <span style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: "0.14em", textTransform: "uppercase" }}>Interactive Intel</span>
-          <ChevronDown size={18} aria-hidden="true" />
-        </button>
+        {/* In-flow structural divider — no absolute positioning, zero overlap */}
+        <div style={{ display: "flex", justifyContent: "center", paddingTop: 28 }}>
+          <button
+            onClick={scrollToContent}
+            aria-label="Scroll to interactive dashboard"
+            style={{
+              background: "var(--bg-card)",
+              border: "1px solid var(--border)",
+              borderRadius: 999,
+              cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "8px 20px",
+              color: "var(--text-muted)",
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              boxShadow: "var(--sh-card)",
+            }}
+          >
+            <span>Explore Telemetry &amp; GIS Map</span>
+            <ChevronDown size={14} aria-hidden="true" />
+          </button>
+        </div>
       </section>
 
       {/* ══════════ MAIN CONTENT ══════════ */}
