@@ -53,55 +53,31 @@ import {
   generateForecastCurve
 } from "@/lib/dataService";
 
-const CLEAN_AIR_QUOTES = [
-  {
-    quote: "Clean air is not a luxury or a privilege; it is the fundamental biological foundation of human dignity, health, and intellect.",
-    author: "World Health Organization",
-    category: "Global Health",
-    color: "#0284c7",
-    bg: "#f0f9ff",
-    border: "#bae6fd"
-  },
-  {
-    quote: "The air does not belong to any nation, nor does the wind respect borders. In every breath, humanity shares one living atmosphere.",
-    author: "Atmospheric Science Council",
-    category: "Planetary Ecology",
-    color: "#059669",
-    bg: "#ecfdf5",
-    border: "#a7f3d0"
-  },
-  {
-    quote: "Predictive intelligence empowers communities to turn reactive medical treatment into proactive atmospheric protection.",
-    author: "National Clean Air Initiative",
-    category: "Data & Innovation",
-    color: "#7c3aed",
-    bg: "#faf5ff",
-    border: "#ddd6fe"
-  },
-  {
-    quote: "Look deep into nature, and then you will understand everything better. Air is the breath of the living cosmos.",
-    author: "Albert Einstein",
-    category: "Inspiration",
-    color: "#e11d48",
-    bg: "#fff1f2",
-    border: "#fecdd3"
-  }
-];
+// Note: scenario simulator uses multiplier overrides on observed PM2.5 values
+// to illustrate possible atmospheric scenarios. Clearly labelled as simulation.
 
 export default function DashboardPage() {
   const [stations, setStations] = useState<ExtendedStation[]>(FALLBACK_STATIONS);
   const [selectedStation, setSelectedStation] = useState<ExtendedStation>(FALLBACK_STATIONS[0]);
   const [refreshing, setRefreshing] = useState(false);
+  const [isLive, setIsLive] = useState(false);
   const [quoteIndex, setQuoteIndex] = useState(0);
-  const [simScenario, setSimScenario] = useState<"normal" | "rain" | "traffic" | "wind" | "biomass">("normal");
+  const CLEAN_AIR_QUOTES = [
+  "Clean air is a human right.",
+  "Every breath matters.",
+  "Protect the sky, protect yourself.",
+  "Fresh air fuels fresh ideas."
+];
+const [simScenario, setSimScenario] = useState<"normal" | "rain" | "traffic" | "wind" | "biomass">("normal");
   const [exportingPDF, setExportingPDF] = useState(false);
   const reportRef = useRef<HTMLDivElement>(null);
 
   const loadData = async () => {
     setRefreshing(true);
     try {
-      const { stations: d } = await fetchLiveOrFallbackStations();
+      const { stations: d, isLiveBackend } = await fetchLiveOrFallbackStations();
       setStations(d);
+      setIsLive(isLiveBackend);
       setSelectedStation(prev => d.find(s => s.station === prev?.station) ?? d[0]);
     } catch {
       setStations(FALLBACK_STATIONS);
@@ -112,10 +88,6 @@ export default function DashboardPage() {
 
   useEffect(() => {
     loadData();
-    const quoteTimer = setInterval(() => {
-      setQuoteIndex(prev => (prev + 1) % CLEAN_AIR_QUOTES.length);
-    }, 8000);
-    return () => clearInterval(quoteTimer);
   }, []);
 
   const effectivePM25 = useMemo(() => {
@@ -479,38 +451,38 @@ export default function DashboardPage() {
   const currentQuote = CLEAN_AIR_QUOTES[quoteIndex];
 
   return (
-    <div style={{ padding: "32px 36px 64px", maxWidth: 1600, margin: "0 auto" }}>
+    <div style={{ padding: "28px 32px 64px", maxWidth: 1480, margin: "0 auto" }}>
 
-      {/* ── Executive Header ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, marginBottom: 28, flexWrap: "wrap" }}>
+      {/* ── Header ── */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, marginBottom: 24, flexWrap: "wrap" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <span style={{
-              fontSize: 10.5,
-              fontWeight: 800,
+              fontSize: 10,
+              fontWeight: 700,
               textTransform: "uppercase",
               letterSpacing: "0.12em",
-              color: "#1d72f2",
-              background: "linear-gradient(135deg, #eff6ff, #dbeafe)",
-              border: "1px solid #bfdbfe",
-              padding: "4px 10px",
-              borderRadius: 8,
+              color: "var(--primary)",
+              background: "var(--brand-50)",
+              border: "1px solid var(--sage-light)",
+              padding: "3px 10px",
+              borderRadius: 6,
               display: "flex",
               alignItems: "center",
               gap: 6
             }}>
-              <LayoutDashboard size={12} /> Executive Dashboard
+              <LayoutDashboard size={11} aria-hidden="true" /> Live Air Quality
             </span>
-            <span className="live-dot" />
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#059669" }}>
-              High-Precision Telemetry Hub
+            <span className="live-dot" aria-hidden="true" />
+            <span style={{ fontSize: 12, fontWeight: 600, color: isLive ? "var(--primary)" : "#b45309" }}>
+              {isLive ? "CPCB Live Feed" : "Open-Meteo Estimated"}
             </span>
           </div>
           <h1 className="section-title">
-            Air Quality Command Center
+            Air Quality Dashboard
           </h1>
-          <p style={{ fontSize: 14.5, color: "#64748b", marginTop: 6, fontWeight: 500, maxWidth: 560 }}>
-            Multi-pollutant spectrum analysis, AI-powered predictive horizons &amp; what-if atmospheric simulation.
+          <p style={{ fontSize: 14, color: "var(--text-muted)", marginTop: 6, fontWeight: 400, maxWidth: 560 }}>
+            Multi-pollutant readings, atmospheric conditions, and ML-generated forecasts for your selected station.
           </p>
         </div>
 
@@ -552,89 +524,29 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* ── Inspirational Quote Banner ── */}
-      <div
-        className="light-card"
-        style={{
-          padding: "20px 26px",
-          marginBottom: 24,
-          background: `linear-gradient(135deg, ${currentQuote.bg} 0%, #ffffff 100%)`,
-          border: `1px solid ${currentQuote.border}`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          gap: 20,
-          position: "relative",
-          overflow: "hidden",
-        }}
-      >
-        {/* Background Decoration */}
-        <div style={{
-          position: "absolute",
-          right: -20,
-          top: -20,
-          width: 120,
-          height: 120,
-          borderRadius: "50%",
-          background: `${currentQuote.color}08`,
-          pointerEvents: "none",
-        }} />
-
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 16 }}>
-          <div style={{
-            width: 42,
-            height: 42,
-            borderRadius: 12,
-            background: "#ffffff",
+      {/* ── Data notice ── */}
+      {!isLive && (
+        <div
+          style={{
+            background: "#fffbeb",
+            border: "1px solid #fde68a",
+            borderLeft: "3px solid #b45309",
+            borderRadius: 10,
+            padding: "10px 16px",
+            marginBottom: 20,
             display: "flex",
             alignItems: "center",
-            justifyContent: "center",
-            color: currentQuote.color,
-            boxShadow: "0 2px 12px rgba(15,23,42,0.08)",
-            flexShrink: 0,
-          }}>
-            <Quote size={20} />
-          </div>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-              <span style={{
-                fontSize: 9.5,
-                fontWeight: 800,
-                textTransform: "uppercase",
-                letterSpacing: "0.12em",
-                color: currentQuote.color,
-                background: "#ffffff",
-                padding: "2px 8px",
-                borderRadius: 4,
-              }}>
-                {currentQuote.category}
-              </span>
-            </div>
-            <p style={{
-              fontSize: 14.5,
-              fontWeight: 600,
-              fontStyle: "italic",
-              color: "#0f172a",
-              lineHeight: 1.5,
-              fontFamily: "'Georgia', serif",
-              maxWidth: 640,
-            }}>
-              "{currentQuote.quote}"
-            </p>
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#475569", marginTop: 6, display: "block" }}>
-              — {currentQuote.author}
-            </span>
-          </div>
-        </div>
-
-        <button
-          onClick={() => setQuoteIndex(prev => (prev + 1) % CLEAN_AIR_QUOTES.length)}
-          className="btn-ghost"
-          style={{ flexShrink: 0 }}
+            gap: 10,
+            fontSize: 12.5,
+            color: "#92400e",
+            fontWeight: 500,
+          }}
+          role="alert"
         >
-          Next →
-        </button>
-      </div>
+          <Sparkles size={14} aria-hidden="true" />
+          Showing Open-Meteo modelled estimates. Live CPCB database is not connected. Pollutant values for SO2, CO, O3 are estimated from regional patterns.
+        </div>
+      )}
 
       {/* ── Scenario Simulator ── */}
       <div className="light-card" style={{ padding: "18px 24px", marginBottom: 28, background: "#ffffff" }}>

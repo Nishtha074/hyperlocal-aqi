@@ -1,10 +1,8 @@
 "use client";
+import React from "react";
+import Sidebar from "@/components/Sidebar";
 import { useEffect, useState, useMemo } from "react";
-import {
-  Trophy, Wind, TrendingDown, TrendingUp, RefreshCw,
-  Sparkles, Search, Filter, CheckCircle, MapPin,
-  ShieldCheck, ShieldAlert, Medal, Crown, Star, BarChart2
-} from "lucide-react";
+import { Trophy, RefreshCw, BarChart2, MapPin, ShieldCheck, ShieldAlert, Search } from "lucide-react";
 import {
   fetchLiveOrFallbackStations,
   FALLBACK_STATIONS,
@@ -13,7 +11,7 @@ import {
   getAQIMeta
 } from "@/lib/dataService";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, CartesianGrid
 } from "recharts";
 
 const MEDAL_STYLES = [
@@ -81,8 +79,9 @@ export default function LeaderboardPage() {
   }));
 
   return (
-    <div style={{ padding: "32px 36px 64px", maxWidth: 1600, margin: "0 auto" }}>
-
+    <div style={{ display: "flex" }}>
+      <Sidebar />
+      <div style={{ padding: "32px 36px 64px", maxWidth: 1600, margin: "0 auto", flex: 1 }}>
       {/* ── Header ── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, marginBottom: 28, flexWrap: "wrap" }}>
         <div>
@@ -340,6 +339,7 @@ export default function LeaderboardPage() {
         </table>
       </div>
 
+    </div>
     </div>
   );
 }

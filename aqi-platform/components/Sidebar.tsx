@@ -2,246 +2,125 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Home,
-  LayoutDashboard,
-  Map,
-  TrendingUp,
-  Trophy,
-  User,
-  Bell,
-  Radio,
-  Wind,
-  Leaf
+  Home, LayoutDashboard, TrendingUp, Map, Bell, BarChart3, Info, Wind,
 } from "lucide-react";
 
-const NAV_ITEMS = [
-  { href: "/",            label: "Home",        icon: Home,            color: "#60a5fa" },
-  { href: "/dashboard",   label: "Dashboard",   icon: LayoutDashboard, color: "#34d399" },
-  { href: "/map",         label: "Live Map",    icon: Map,             color: "#a78bfa" },
-  { href: "/trends",      label: "Trends",      icon: TrendingUp,      color: "#fbbf24" },
-  { href: "/leaderboard", label: "Leaderboard", icon: Trophy,          color: "#f472b6" },
-  { href: "/profile",     label: "Health Profile", icon: User,         color: "#fb923c" },
-  { href: "/alerts",      label: "Alerts",      icon: Bell,            color: "#f87171" },
+const NAV = [
+  { href: "/",            label: "Overview",        icon: Home,            color: "#00ffa3" },
+  { href: "/dashboard",   label: "Live Air Quality", icon: LayoutDashboard, color: "#00d4ff" },
+  { href: "/trends",      label: "Forecasts",        icon: TrendingUp,      color: "#a3e635" },
+  { href: "/map",         label: "Pollution Map",    icon: Map,             color: "#00ffa3" },
+  { href: "/alerts",      label: "Alerts",           icon: Bell,            color: "#f59e0b" },
+  { href: "/leaderboard", label: "City Rankings",    icon: BarChart3,       color: "#a855f7" },
+  { href: "/profile",     label: "About AirPulse",   icon: Info,            color: "#00d4ff" },
 ];
 
-export default function Sidebar() {
+function hexToRgb(hex: string) {
+  return `${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)}`;
+}
+
+export default function Sidebar({ mobileOpen }: { mobileOpen?: boolean }) {
   const pathname = usePathname();
 
   return (
-    <aside id="sidebar">
-      {/* ── Brand Logo ── */}
-      <Link
-        href="/"
-        style={{
-          textDecoration: "none",
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "4px 6px 20px",
-          marginBottom: 12,
-          borderBottom: `1px solid var(--border-light)`,
-        }}
-      >
-        {/* Animated logo mark */}
-        <div
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 14,
-            background: "linear-gradient(135deg, #10b981 0%, #059669 60%, #047857 100%)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            boxShadow: "0 6px 20px rgba(16,185,129,0.4), inset 0 1px 0 rgba(255,255,255,0.2)",
-            flexShrink: 0,
-            position: "relative",
-          }}
-        >
-          <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M12 2C6.48 2 2 6.48 2 12C2 15.5 3.8 18.6 6.5 20.4C6.2 18.5 6.4 16.5 7.2 14.8C8.5 12 11.2 10.2 14.2 9.8C16.8 9.5 19.5 10.4 21.2 12.3C21.7 10.7 22 9 22 7.2C22 4.3 17.5 2 12 2Z"
-              fill="rgba(255,255,255,0.95)"
-            />
-            <path
-              d="M21.5 12.5C19.2 10.5 16.2 9.6 13.2 10C10.5 10.4 8 12 6.8 14.5C5.9 16.3 5.8 18.4 6.2 20.4C7.9 21.4 9.9 22 12 22C17.5 22 22 17.5 22 12C22 11.8 22 11.7 21.9 11.5L21.5 12.5Z"
-              fill="rgba(110,231,183,0.9)"
-            />
-          </svg>
-        </div>
+    <aside
+      id="sidebar"
+      aria-label="Main navigation"
+      style={{
+        width: "252px",
+        height: "100vh",
+        background: "rgba(2,10,6,0.97)",
+        borderRight: "1px solid rgba(0,255,163,0.10)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+        display: "flex",
+        flexDirection: "column",
+        padding: "22px 14px 24px",
+        overflowY: "auto",
+        overflowX: "hidden",
+        scrollbarWidth: "none",
+        position: "relative",
+        // Sidebar is always visible on all screen sizes.
+        transform: "translateX(0)",
+        transition: "transform 0.28s cubic-bezier(0.16,1,0.3,1)",
+      }}
+    >
+      {/* Top line */}
+      <div aria-hidden="true" style={{
+        position:"absolute", top:0, left:0, right:0, height:1,
+        background:"linear-gradient(90deg,transparent 0%,#00ffa3 40%,#00d4ff 70%,transparent 100%)",
+        opacity:0.6,
+      }} />
 
-        <div style={{ display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          <span
-            className="sidebar-brand-text"
-            style={{
-              fontFamily: "'Outfit', sans-serif",
-              fontSize: 22,
-              fontWeight: 900,
-              color: "var(--text-title)",
-              letterSpacing: "-0.04em",
-              lineHeight: 1.1,
-            }}
-          >
+      {/* Logo */}
+      <Link href="/" aria-label="AirPulse home" style={{
+        textDecoration:"none", display:"flex", alignItems:"center", gap:11,
+        paddingBottom:22, marginBottom:18,
+        borderBottom:"1px solid rgba(0,255,163,0.10)",
+      }}>
+        <div style={{
+          width:38, height:38, borderRadius:11, flexShrink:0,
+          background:"linear-gradient(135deg,rgba(0,255,163,0.2),rgba(0,212,255,0.12))",
+          border:"1px solid rgba(0,255,163,0.30)",
+          display:"flex", alignItems:"center", justifyContent:"center",
+          boxShadow:"0 0 20px rgba(0,255,163,0.2)",
+        }}>
+          <Wind size={19} color="#00ffa3" strokeWidth={2.2} aria-hidden="true" />
+        </div>
+        <div className="sidebar-brand-text">
+          <div style={{ fontFamily:"'Outfit',sans-serif", fontSize:17, fontWeight:800, color:"#fff", letterSpacing:"-0.03em", lineHeight:1.1 }}>
             AirPulse
-          </span>
-          <span
-            className="sidebar-brand-text"
-            style={{
-              fontSize: 10.5,
-              color: "#34d399",
-              fontWeight: 700,
-              letterSpacing: "0.04em",
-              marginTop: 1,
-            }}
-          >
-            Clean Air Intelligence
-          </span>
+          </div>
+          <div style={{ fontSize:9.5, fontWeight:600, color:"rgba(0,255,163,0.65)", letterSpacing:"0.1em", textTransform:"uppercase", marginTop:2 }}>
+            Environmental Intel
+          </div>
         </div>
       </Link>
 
-      {/* ── Nav Section Label ── */}
-      <span
-        className="sidebar-brand-text"
-        style={{
-          fontSize: 9.5,
-          fontWeight: 800,
-          textTransform: "uppercase",
-          letterSpacing: "0.14em",
-          color: "var(--text-muted)",
-          padding: "0 8px",
-          marginBottom: 8,
-          display: "block",
-        }}
-      >
+      <div className="sidebar-brand-text" style={{ fontSize:9, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.15em", color:"rgba(0,255,163,0.28)", padding:"0 4px", marginBottom:8 }}>
         Navigation
-      </span>
+      </div>
 
-      {/* ── Navigation Links ── */}
-      <nav style={{ display: "flex", flexDirection: "column", gap: 3, flex: 1 }}>
-        {NAV_ITEMS.map(({ href, label, icon: Icon, color }) => {
+      <nav style={{ flex:1 }} aria-label="Primary navigation">
+        {NAV.map(({ href, label, icon: Icon, color }) => {
           const isActive = pathname === href || (href !== "/" && pathname.startsWith(href));
           return (
             <Link
-              key={href}
-              href={href}
+              key={href} href={href}
               className={`nav-link${isActive ? " active" : ""}`}
+              aria-current={isActive ? "page" : undefined}
+              style={{ marginBottom:2 }}
             >
-              <div
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 9,
-                  background: isActive
-                    ? `rgba(255,255,255,0.12)`
-                    : `rgba(255,255,255,0.06)`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  flexShrink: 0,
-                  transition: "all 0.18s ease",
-                }}
-              >
-                <Icon
-                  size={15}
-                  color={isActive ? color : "rgba(255,255,255,0.5)"}
-                  strokeWidth={isActive ? 2.4 : 2.0}
-                />
+              <div style={{
+                width:28, height:28, borderRadius:8, flexShrink:0,
+                display:"flex", alignItems:"center", justifyContent:"center",
+                background: isActive ? `rgba(${hexToRgb(color)},0.14)` : "rgba(0,255,163,0.04)",
+                transition:"all 0.18s ease",
+              }}>
+                <Icon size={14} color={isActive ? color : "rgba(120,170,140,0.55)"} strokeWidth={isActive ? 2.4 : 2} aria-hidden="true" />
               </div>
-              <span className="nav-label" style={{ flex: 1, letterSpacing: "-0.01em" }}>
-                {label}
-              </span>
+              <span className="nav-label">{label}</span>
               {isActive && (
-                <div
-                  style={{
-                    width: 5,
-                    height: 5,
-                    borderRadius: "50%",
-                    background: color,
-                    boxShadow: `0 0 6px ${color}`,
-                  }}
-                />
+                <span aria-hidden="true" style={{ width:4, height:4, borderRadius:"50%", background:color, boxShadow:`0 0 6px ${color}`, flexShrink:0 }} />
               )}
             </Link>
           );
         })}
       </nav>
 
-      {/* ── Divider ── */}
-      <div style={{ height: 1, background: "rgba(255,255,255,0.08)", margin: "16px 0" }} />
+      <div style={{ height:1, background:"linear-gradient(90deg,transparent,rgba(0,255,163,0.12),transparent)", margin:"16px 0" }} aria-hidden="true" />
 
-      {/* ── Live System Status ── */}
-      <div
-        className="sidebar-brand-text"
-        style={{
-          padding: "12px 14px",
-          borderRadius: 12,
-          background: "rgba(16,185,129,0.1)",
-          border: "1px solid rgba(16,185,129,0.2)",
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          marginBottom: 12,
-        }}
-      >
-        <div
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 8,
-            background: "rgba(16,185,129,0.15)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            color: "#34d399",
-            flexShrink: 0,
-          }}
-        >
-          <Radio size={14} />
+      <div className="sidebar-brand-text" style={{ padding:"10px 12px", borderRadius:10, background:"rgba(0,255,163,0.06)", border:"1px solid rgba(0,255,163,0.14)", marginBottom:14 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+          <span className="live-dot" aria-hidden="true" />
+          <span style={{ fontSize:10, fontWeight:700, color:"rgba(0,255,163,0.8)", letterSpacing:"0.06em" }}>SYSTEM ONLINE</span>
         </div>
-        <div style={{ overflow: "hidden" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
-            <span className="live-dot" style={{ width: 6, height: 6 }} />
-            <span
-              style={{
-                fontSize: 10.5,
-                fontWeight: 800,
-                color: "#34d399",
-                letterSpacing: "0.04em",
-              }}
-            >
-              NETWORK ONLINE
-            </span>
-          </div>
-          <p style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", fontWeight: 600, lineHeight: 1.3 }}>
-            GJ &amp; MH CAAQMS Active
-          </p>
-        </div>
+        <p style={{ fontSize:9.5, color:"rgba(120,170,140,0.55)", fontWeight:500 }}>Open-Meteo · CPCB · XGBoost ML</p>
       </div>
 
-      {/* ── Version Footer ── */}
-      <div
-        className="sidebar-brand-text"
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "0 4px",
-        }}
-      >
-        <span style={{ fontSize: 10.5, color: "rgba(255,255,255,0.28)", fontWeight: 600 }}>
-          AirPulse v4.0
-        </span>
-        <span
-          style={{
-            fontSize: 9.5,
-            color: "#1d72f2",
-            fontWeight: 800,
-            background: "rgba(29,114,242,0.15)",
-            padding: "2px 7px",
-            borderRadius: 4,
-          }}
-        >
-          ML Conformal
-        </span>
+      <div className="sidebar-brand-text" style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 2px" }}>
+        <span style={{ fontSize:10, color:"rgba(0,255,163,0.25)", fontWeight:500 }}>AirPulse v6.0</span>
+        <span style={{ fontSize:9, fontWeight:700, color:"rgba(0,255,163,0.6)", background:"rgba(0,255,163,0.08)", padding:"2px 7px", borderRadius:5, letterSpacing:"0.05em" }}>XGBoost</span>
       </div>
     </aside>
   );

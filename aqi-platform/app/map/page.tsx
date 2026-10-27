@@ -269,31 +269,31 @@ export default function MapPage() {
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <span style={{
-              fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.12em",
-              color: "#7c3aed", background: "linear-gradient(135deg, #faf5ff, #ede9fe)",
-              border: "1px solid #ddd6fe", padding: "4px 10px", borderRadius: 8,
+              fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.12em",
+              color: "var(--primary)", background: "var(--brand-50)",
+              border: "1px solid var(--sage-light)", padding: "3px 10px", borderRadius: 6,
               display: "flex", alignItems: "center", gap: 6
             }}>
-              <Compass size={12} /> Geospatial AQI Intelligence
+              <Compass size={11} aria-hidden="true" /> Pollution Map
             </span>
-            <span className="live-dot" />
-            <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>Continuous Telemetry Active</span>
+            <span className="live-dot" aria-hidden="true" />
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--primary)" }}>Live Stations</span>
           </div>
           <h1 className="section-title">
-            Interactive Atmospheric Map &amp; Dispersion GIS
+            Air Quality Monitoring Map
           </h1>
-          <p style={{ fontSize: 13.5, color: "#64748b", marginTop: 6, fontWeight: 500 }}>
-            Precision topographic mapping with real-time station search, ambient plume overlays, and hyperlocal telemetry.
+          <p style={{ fontSize: 14, color: "var(--text-muted)", marginTop: 6, fontWeight: 400 }}>
+            Interactive map showing monitoring stations with real-time AQI. Click any station to see detailed readings and health advisory.
           </p>
         </div>
 
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <button onClick={locateUser} disabled={locating} className="btn-secondary">
-            <LocateFixed size={15} color="#1d72f2" />
-            <span>{locating ? "Locating…" : "My Nearest Station"}</span>
+            <LocateFixed size={15} color="var(--primary)" aria-hidden="true" />
+            <span>{locating ? "Locating…" : "Find Nearest Station"}</span>
           </button>
-          <button onClick={loadStations} className="btn-secondary" style={{ padding: "9px 12px" }}>
-            <RefreshCw size={15} className={refreshing ? "spin" : ""} color="#475569" />
+          <button onClick={loadStations} className="btn-secondary" style={{ padding: "9px 12px" }} aria-label="Refresh station data">
+            <RefreshCw size={15} className={refreshing ? "spin" : ""} aria-hidden="true" />
           </button>
         </div>
       </div>
