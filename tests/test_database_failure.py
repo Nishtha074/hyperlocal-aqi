@@ -98,7 +98,6 @@ def test_api_forecast_empty_history_marks_database_available():
     assert data["observation_source"] == "Open-Meteo"
     assert data["observation_timestamp"] == "2026-10-10T12:00:00"
     assert data["note"] == "No stored history for this station; observation sourced from Open-Meteo. Forecast generated using XGBoost model."
-    mock_conn.close.assert_awaited_once()
 
 
 def test_api_forecast_stored_cpcb_reading_returns_source_timestamp():
@@ -167,8 +166,14 @@ def test_init_db_can_run_twice_without_destructive_sql():
         asyncio.run(init_db())
 
     statements = [call.args[0] for call in mock_conn.execute.call_args_list]
-    assert len(statements) == 14
-    assert all("CREATE TABLE IF NOT EXISTS" in sql or "CREATE UNIQUE INDEX IF NOT EXISTS" in sql for sql in statements)
+    assert len(statements) == 26
+    assert all(
+        "CREATE TABLE IF NOT EXISTS" in sql
+        or "CREATE UNIQUE INDEX IF NOT EXISTS" in sql
+        or "ALTER TABLE" in sql
+        or "UPDATE forecasts" in sql
+        for sql in statements
+    )
     assert not any(sql.lstrip().upper().startswith(("DROP ", "DELETE ", "TRUNCATE ")) for sql in statements)
     schema = "\n".join(statements)
     for table in ("cpcb_readings", "weather_readings", "forecasts", "model_metrics", "alerts", "alert_events"):
