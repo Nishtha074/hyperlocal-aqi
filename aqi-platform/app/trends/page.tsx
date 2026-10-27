@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from "react";
 import {
   TrendingUp, BarChart2, Clock, MapPin,
   ArrowUpRight, Wind, Sparkles, RefreshCw,
-  Activity, Layers, Calendar, Download, FileText
+  Activity, Layers, Calendar, Download, FileText, CheckCircle2
 } from "lucide-react";
 import {
   AreaChart, Area, LineChart, Line,
@@ -38,20 +38,24 @@ function generateRealisticHistory(hours: number, basePm25: number) {
   });
 }
 
-const CustomTooltip = ({ active, payload, label }: any) => {
+const CustomDarkTooltip = ({ active, payload, label }: any) => {
   if (!active || !payload || !payload.length) return null;
   return (
     <div style={{
-      background: "#ffffff", border: "1px solid #e2e8f0",
-      borderRadius: 12, padding: "12px 16px",
-      boxShadow: "0 8px 24px rgba(15,23,42,0.12)"
+      background: "var(--bg-card)",
+      border: "1px solid var(--border-bright)",
+      borderRadius: 12,
+      padding: "10px 14px",
+      boxShadow: "0 8px 32px rgba(0,0,0,0.7), var(--glow-mint)"
     }}>
-      <p style={{ fontSize: 10.5, fontWeight: 800, color: "#64748b", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</p>
+      <p style={{ fontSize: 10, fontWeight: 800, color: "var(--text-muted)", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+        {label}
+      </p>
       {payload.map((p: any) => (
         <div key={p.dataKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-          <div style={{ width: 8, height: 8, borderRadius: 2, background: p.color }} />
-          <span style={{ fontSize: 12, color: "#334155", fontWeight: 600 }}>{p.name}:</span>
-          <strong style={{ fontSize: 12.5, color: p.color }}>{p.value}</strong>
+          <div style={{ width: 8, height: 8, borderRadius: 2, background: p.color, boxShadow: `0 0 6px ${p.color}` }} />
+          <span style={{ fontSize: 11.5, color: "var(--text-secondary)", fontWeight: 600 }}>{p.name}:</span>
+          <strong style={{ fontSize: 12, color: p.color }}>{p.value}</strong>
         </div>
       ))}
     </div>
@@ -59,9 +63,9 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 };
 
 export default function TrendsPage() {
-  const [stations, setStations]     = useState<ExtendedStation[]>(FALLBACK_STATIONS);
+  const [stations, setStations] = useState<ExtendedStation[]>(FALLBACK_STATIONS);
   const [selectedStation, setSelectedStation] = useState<ExtendedStation>(FALLBACK_STATIONS[0]);
-  const [hours, setHours]           = useState<number>(24);
+  const [hours, setHours] = useState<number>(24);
   const [pollutantTab, setPollutantTab] = useState<"all" | "pm25" | "pm10" | "aqi">("all");
   const [refreshing, setRefreshing] = useState(false);
 
@@ -82,8 +86,6 @@ export default function TrendsPage() {
   const min  = Math.min(...vals);
   const curAQI  = calculateAQI(selectedStation.pm25);
   const curMeta = getAQIMeta(curAQI);
-
-  // AQI Danger threshold reference line value
   const dangerThresh = 60;
 
   const handleExportCSV = () => {
@@ -99,26 +101,26 @@ export default function TrendsPage() {
   };
 
   return (
-    <div style={{ padding: "32px 36px 64px", maxWidth: 1600, margin: "0 auto" }}>
+    <div style={{ padding: "28px 32px 72px", maxWidth: 1520, margin: "0 auto" }}>
 
       {/* ── Header ── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, marginBottom: 28, flexWrap: "wrap" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <span style={{
-              fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.12em",
-              color: "#d97706", background: "linear-gradient(135deg, #fffbeb, #fef3c7)",
-              border: "1px solid #fde68a", padding: "4px 10px", borderRadius: 8,
+              fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.14em",
+              color: "var(--mint)", background: "var(--bg-glass-md)",
+              border: "1px solid var(--border-bright)", padding: "4px 10px", borderRadius: 6,
               display: "flex", alignItems: "center", gap: 6
             }}>
-              <TrendingUp size={12} /> Time-Series & Predictive Analytics
+              <TrendingUp size={12} /> Time-Series &amp; Predictive Analytics
             </span>
             <span className="live-dot" />
-            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>Predictive Forecast Engine</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--mint)" }}>Predictive Forecast Engine</span>
           </div>
           <h1 className="section-title">Historical Trends &amp; Forecasts</h1>
-          <p style={{ fontSize: 14, color: "#64748b", marginTop: 6, fontWeight: 500 }}>
-            Diurnal pollution accumulation cycles, atmospheric lag correlations, and multi-horizon projections.
+          <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 6, fontWeight: 400, maxWidth: 620 }}>
+            Diurnal pollution accumulation cycles, atmospheric boundary layer collapse correlations, and multi-horizon projections.
           </p>
         </div>
 
@@ -133,95 +135,93 @@ export default function TrendsPage() {
           >
             {stations.map(s => (
               <option key={s.station} value={s.station}>
-                {s.city} — {s.station}
+                📍 {s.city} — {s.station}
               </option>
             ))}
           </select>
           <button onClick={handleExportCSV} className="btn-secondary">
-            <Download size={14} color="#059669" />
+            <Download size={14} color="var(--mint)" />
             <span>Export CSV</span>
           </button>
         </div>
       </div>
 
       {/* ── KPI Metric Cards ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 18, marginBottom: 28 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 18, marginBottom: 26 }}>
         {[
           {
-            label: "Current AQI",
+            label: "Current Real-Time AQI",
             value: curAQI,
             sub: curMeta.label,
             color: curMeta.color,
             bg: curMeta.bg,
-            unit: "",
+            unit: "points",
             icon: Activity,
-            accent: curMeta.color,
           },
           {
-            label: `${hours}h Average PM2.5`,
+            label: `${hours}h Window Mean PM2.5`,
             value: avg,
-            sub: "Window mean concentration",
-            color: "var(--text-title)",
-            bg: "#f8fafc",
+            sub: "Moving baseline concentration",
+            color: "var(--cyan)",
+            bg: "rgba(0, 212, 255, 0.1)",
             unit: "µg/m³",
             icon: BarChart2,
-            accent: "#0284c7",
           },
           {
-            label: "Peak Level",
+            label: "Peak Observed Surge",
             value: max.toFixed(1),
-            sub: "Rush-hour accumulation",
-            color: "#ea580c",
-            bg: "#fff7ed",
+            sub: "Rush-hour accumulation peak",
+            color: "#f97316",
+            bg: "rgba(249, 115, 22, 0.1)",
             unit: "µg/m³",
             icon: ArrowUpRight,
-            accent: "#ea580c",
           },
           {
-            label: "Trough Level",
+            label: "Trough Clearance Level",
             value: min.toFixed(1),
-            sub: "Afternoon clearance",
-            color: "#059669",
-            bg: "#ecfdf5",
+            sub: "Thermal mixing dilution minimum",
+            color: "var(--mint)",
+            bg: "rgba(0, 255, 163, 0.1)",
             unit: "µg/m³",
             icon: Wind,
-            accent: "#059669",
           },
         ].map((m) => (
           <div
             key={m.label}
-            className="stat-card hover-lift"
-            style={{ "--stat-accent": m.accent } as any}
+            className="glass-card"
+            style={{ padding: "20px 22px" }}
           >
             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12 }}>
               <div
                 style={{
-                  width: 40, height: 40, borderRadius: 12,
+                  width: 38, height: 38, borderRadius: 10,
                   background: m.bg, display: "flex", alignItems: "center", justifyContent: "center",
-                  color: m.color,
+                  color: m.color, border: `1px solid ${m.color}35`,
+                  boxShadow: `0 0 12px ${m.color}25`
                 }}
               >
                 <m.icon size={18} />
               </div>
-              <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: "#94a3b8" }}>
+              <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: "var(--text-muted)" }}>
                 {m.label}
               </span>
             </div>
-            <div className="display-num" style={{ fontSize: 34, color: m.color, marginBottom: 4 }}>
-              {m.value}{m.unit && <span style={{ fontSize: 14, color: "#94a3b8", fontWeight: 600, marginLeft: 3 }}>{m.unit}</span>}
+            <div className="display-num" style={{ fontSize: 32, color: m.color, marginBottom: 4 }}>
+              {m.value}
+              {m.unit && <span style={{ fontSize: 13, color: "var(--text-muted)", fontWeight: 600, marginLeft: 4 }}>{m.unit}</span>}
             </div>
-            <p style={{ fontSize: 11.5, color: "#64748b", fontWeight: 500 }}>{m.sub}</p>
+            <p style={{ fontSize: 11.5, color: "var(--text-secondary)", fontWeight: 500 }}>{m.sub}</p>
           </div>
         ))}
       </div>
 
       {/* ── Main Chart Card ── */}
-      <div className="light-card" style={{ padding: "26px", marginBottom: 26 }}>
+      <div className="glass-card" style={{ padding: "26px", marginBottom: 26 }}>
 
         {/* Controls */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 14 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontSize: 14, fontWeight: 800, color: "var(--text-title)" }}>Pollutant View:</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--text-primary)" }}>Pollutant Spectrum:</span>
             {(["all", "pm25", "pm10", "aqi"] as const).map(tab => (
               <button
                 key={tab}
@@ -234,7 +234,7 @@ export default function TrendsPage() {
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 600, color: "#64748b" }}>Window:</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--text-muted)" }}>Window:</span>
             {[12, 24, 48].map(h => (
               <button
                 key={h}
@@ -242,13 +242,14 @@ export default function TrendsPage() {
                 style={{
                   padding: "5px 13px",
                   borderRadius: 8,
-                  fontSize: 12.5,
+                  fontSize: 12,
                   fontWeight: 700,
-                  border: hours === h ? "2px solid #0284c7" : "1px solid #e2e8f0",
-                  background: hours === h ? "#0284c7" : "#ffffff",
-                  color: hours === h ? "#ffffff" : "#475569",
+                  border: hours === h ? "1px solid var(--mint)" : "1px solid var(--border)",
+                  background: hours === h ? "var(--mint)" : "var(--bg-card)",
+                  color: hours === h ? "#ffffff" : "var(--text-secondary)",
                   cursor: "pointer",
-                  transition: "all 0.15s ease"
+                  transition: "all 0.15s ease",
+                  boxShadow: hours === h ? "var(--glow-mint)" : "none"
                 }}
               >
                 {h}h
@@ -258,71 +259,71 @@ export default function TrendsPage() {
         </div>
 
         {/* Chart */}
-        <div style={{ width: "100%", height: 400 }}>
+        <div style={{ width: "100%", height: 420 }}>
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={historyData} margin={{ top: 10, right: 24, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="pm25Grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#0284c7" stopOpacity={0.28} />
-                  <stop offset="95%" stopColor="#0284c7" stopOpacity={0.02} />
+                  <stop offset="5%"  stopColor="var(--mint)" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="var(--mint)" stopOpacity={0.01} />
                 </linearGradient>
                 <linearGradient id="pm10Grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#d97706" stopOpacity={0.22} />
-                  <stop offset="95%" stopColor="#d97706" stopOpacity={0.02} />
+                  <stop offset="5%"  stopColor="#f59e0b" stopOpacity={0.30} />
+                  <stop offset="95%" stopColor="#f59e0b" stopOpacity={0.01} />
                 </linearGradient>
                 <linearGradient id="aqiGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#8b5cf6" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.02} />
+                  <stop offset="5%"  stopColor="var(--cyan)" stopOpacity={0.35} />
+                  <stop offset="95%" stopColor="var(--cyan)" stopOpacity={0.01} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148, 163, 184, 0.15)" vertical={false} />
               <XAxis
                 dataKey="time"
-                stroke="#94a3b8"
-                fontSize={10.5}
+                stroke="var(--text-muted)"
+                fontSize={11}
                 tickLine={false}
                 axisLine={false}
                 interval={hours === 12 ? 2 : hours === 24 ? 3 : 6}
               />
-              <YAxis stroke="#94a3b8" fontSize={10.5} tickLine={false} axisLine={false} />
-              <Tooltip content={<CustomTooltip />} />
+              <YAxis stroke="var(--text-muted)" fontSize={11} tickLine={false} axisLine={false} />
+              <Tooltip content={<CustomDarkTooltip />} />
               <Legend
-                wrapperStyle={{ fontSize: 12, fontWeight: 700, paddingTop: 12 }}
+                wrapperStyle={{ fontSize: 12, fontWeight: 700, paddingTop: 14 }}
               />
               {/* Danger threshold line */}
               <ReferenceLine
                 y={dangerThresh}
-                stroke="#ef4444"
+                stroke="var(--aqi-unhealthy)"
                 strokeDasharray="5 3"
                 strokeWidth={1.5}
-                label={{ value: "NAQI Limit", position: "right", fontSize: 10, fill: "#ef4444" }}
+                label={{ value: "NAAQS 60 µg/m³ Limit", position: "right", fontSize: 10, fill: "var(--aqi-unhealthy)" }}
               />
 
               {(pollutantTab === "all" || pollutantTab === "pm25") && (
                 <Area
                   type="monotone" dataKey="pm25"
                   name="PM2.5 (µg/m³)"
-                  stroke="#0284c7" strokeWidth={2.5}
+                  stroke="var(--mint)" strokeWidth={2.5}
                   fill="url(#pm25Grad)" dot={false}
-                  activeDot={{ r: 5, fill: "#0284c7" }}
+                  activeDot={{ r: 5, fill: "var(--mint)", stroke: "var(--bg-base)", strokeWidth: 2 }}
                 />
               )}
               {(pollutantTab === "all" || pollutantTab === "pm10") && (
                 <Area
                   type="monotone" dataKey="pm10"
                   name="PM10 (µg/m³)"
-                  stroke="#d97706" strokeWidth={2}
+                  stroke="#f59e0b" strokeWidth={2}
                   fill="url(#pm10Grad)" dot={false}
-                  activeDot={{ r: 5, fill: "#d97706" }}
+                  activeDot={{ r: 5, fill: "#f59e0b" }}
                 />
               )}
               {(pollutantTab === "all" || pollutantTab === "aqi") && (
                 <Area
                   type="monotone" dataKey="aqi"
-                  name="AQI Index"
-                  stroke="#8b5cf6" strokeWidth={2}
+                  name="AQI Points"
+                  stroke="var(--cyan)" strokeWidth={2}
                   fill="url(#aqiGrad)" dot={false}
-                  activeDot={{ r: 5, fill: "#8b5cf6" }}
+                  activeDot={{ r: 5, fill: "var(--cyan)" }}
                 />
               )}
             </AreaChart>
@@ -331,28 +332,31 @@ export default function TrendsPage() {
       </div>
 
       {/* ── Diurnal Pattern Insight ── */}
-      <div className="light-card" style={{ padding: "24px", background: "linear-gradient(135deg, #f0f9ff 0%, #ffffff 100%)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-          <Sparkles size={16} color="#0284c7" />
-          <h3 style={{ fontSize: 16, fontWeight: 800, color: "var(--text-title)" }}>Atmospheric Pattern Insights</h3>
+      <div className="glass-card" style={{ padding: "26px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18 }}>
+          <Sparkles size={16} color="var(--mint)" />
+          <h3 style={{ fontSize: 16, fontWeight: 800, color: "var(--text-primary)" }}>
+            Diurnal Atmospheric Micro-Pattern Analysis
+          </h3>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
           {[
-            { time: "06–09 AM", trend: "↑ Rising", desc: "Morning rush-hour vehicle emissions drive PM2.5 accumulation.", color: "#d97706", bg: "#fffbeb" },
-            { time: "12–14 PM", trend: "↓ Dispersing", desc: "Thermal mixing layer rises, diluting near-surface particulates.", color: "#059669", bg: "#ecfdf5" },
-            { time: "17–20 PM", trend: "↑ Peak", desc: "Evening boundary layer collapse traps pollutants close to ground.", color: "#dc2626", bg: "#fff1f2" },
-            { time: "02–05 AM", trend: "↓ Lowest",  desc: "Nocturnal wind shift and minimal emissions produce trough conditions.", color: "#0284c7", bg: "#f0f9ff" },
+            { time: "06:00 – 09:30 AM", trend: "↑ Rapid Ascent", desc: "Morning vehicular rush-hour emissions collide with low boundary layer ceiling.", color: "#f59e0b", bg: "rgba(245, 158, 11, 0.08)" },
+            { time: "12:00 – 15:00 PM", trend: "↓ Active Dilution", desc: "Solar convective mixing layer expands upward to 1,800m, diluting particulates.", color: "var(--mint)", bg: "rgba(0, 255, 163, 0.08)" },
+            { time: "17:30 – 21:00 PM", trend: "↑ Nocturnal Peak", desc: "Ground radiational cooling triggers inversion, trapping toxic pollutants at breath height.", color: "var(--aqi-unhealthy)", bg: "rgba(239, 68, 68, 0.08)" },
+            { time: "02:00 – 05:00 AM", trend: "↓ Steady Trough",  desc: "Quiescent urban activity and wind shifts clear suspended mass before dawn.", color: "var(--cyan)", bg: "rgba(0, 212, 255, 0.08)" },
           ].map(p => (
             <div key={p.time} style={{
               background: p.bg, borderRadius: 14,
-              padding: "14px 16px",
-              border: `1px solid ${p.color}30`
+              padding: "16px",
+              border: `1px solid ${p.color}35`,
+              boxShadow: `0 0 14px ${p.color}15`
             }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                <span style={{ fontSize: 11, fontWeight: 800, color: "#64748b" }}>{p.time}</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-muted)" }}>{p.time}</span>
                 <span style={{ fontSize: 12, fontWeight: 900, color: p.color }}>{p.trend}</span>
               </div>
-              <p style={{ fontSize: 11.5, color: "#475569", lineHeight: 1.45, fontWeight: 500 }}>{p.desc}</p>
+              <p style={{ fontSize: 12, color: "var(--text-secondary)", lineHeight: 1.5, fontWeight: 500 }}>{p.desc}</p>
             </div>
           ))}
         </div>

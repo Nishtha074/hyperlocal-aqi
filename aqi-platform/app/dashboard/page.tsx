@@ -20,17 +20,31 @@ import {
   AlertTriangle,
   Download,
   Share2,
-  Quote,
   Activity,
   Zap,
   CheckCircle2,
   Clock,
   Eye,
+  EyeOff,
   HeartPulse,
   FileText,
   BarChart3,
   Gauge,
-  Globe2
+  GripVertical,
+  Maximize2,
+  Minimize2,
+  ArrowLeft,
+  ArrowRight,
+  ChevronUp,
+  ChevronDown,
+  RotateCcw,
+  Layers,
+  Info,
+  Radio,
+  PlusCircle,
+  SlidersHorizontal,
+  X,
+  Target
 } from "lucide-react";
 import {
   AreaChart,
@@ -53,25 +67,143 @@ import {
   generateForecastCurve
 } from "@/lib/dataService";
 
-// Note: scenario simulator uses multiplier overrides on observed PM2.5 values
-// to illustrate possible atmospheric scenarios. Clearly labelled as simulation.
+/* ── Widget Definition for Movable Layout ── */
+interface DashboardWidget {
+  id: string;
+  title: string;
+  span: "span-4" | "span-6" | "span-8" | "span-12";
+  visible: boolean;
+}
+
+const DEFAULT_WIDGETS: DashboardWidget[] = [
+  { id: "aqi_gauge",        title: "National AQI Index",          span: "span-4", visible: true },
+  { id: "spectrum",         title: "Multi-Pollutant Spectrum",    span: "span-8", visible: true },
+  { id: "scenario_sim",     title: "Atmospheric Scenario Studio", span: "span-12", visible: true },
+  { id: "forecast_chart",   title: "Predictive AI ML Forecast",   span: "span-8", visible: true },
+  { id: "microclimate",     title: "Atmospheric Telemetry",       span: "span-4", visible: true },
+  { id: "health_advisory",  title: "Cohort Health Advisories",    span: "span-6", visible: true },
+  { id: "city_comparison",  title: "Regional Comparative Radar",  span: "span-6", visible: true },
+];
+
+const QUICK_CITIES = [
+  "Pune", "Mumbai", "Ahmedabad", "Anand", "Surat", "Vadodara", "Rajkot", "Nashik"
+];
 
 export default function DashboardPage() {
   const [stations, setStations] = useState<ExtendedStation[]>(FALLBACK_STATIONS);
   const [selectedStation, setSelectedStation] = useState<ExtendedStation>(FALLBACK_STATIONS[0]);
   const [refreshing, setRefreshing] = useState(false);
   const [isLive, setIsLive] = useState(false);
-  const [quoteIndex, setQuoteIndex] = useState(0);
-  const CLEAN_AIR_QUOTES = [
-  "Clean air is a human right.",
-  "Every breath matters.",
-  "Protect the sky, protect yourself.",
-  "Fresh air fuels fresh ideas."
-];
-const [simScenario, setSimScenario] = useState<"normal" | "rain" | "traffic" | "wind" | "biomass">("normal");
+  const [simScenario, setSimScenario] = useState<"normal" | "rain" | "traffic" | "wind" | "biomass">("normal");
   const [exportingPDF, setExportingPDF] = useState(false);
-  const reportRef = useRef<HTMLDivElement>(null);
 
+  /* ── Movable Layout State ── */
+  const [widgets, setWidgets] = useState<DashboardWidget[]>(DEFAULT_WIDGETS);
+  const [isCustomizeMode, setIsCustomizeMode] = useState(false);
+  const [draggedWidgetId, setDraggedWidgetId] = useState<string | null>(null);
+  const [dragOverWidgetId, setDragOverWidgetId] = useState<string | null>(null);
+  const [fullscreenWidget, setFullscreenWidget] = useState<string | null>(null);
+
+  // Load custom layout from localStorage
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("airpulse_dashboard_layout_v3");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          const merged = parsed.map((item: any) => {
+            const def = DEFAULT_WIDGETS.find(w => w.id === item.id);
+            return {
+              id: item.id,
+              title: def?.title || item.title,
+              span: item.span || def?.span || "span-6",
+              visible: item.visible !== undefined ? item.visible : true,
+            };
+          });
+          DEFAULT_WIDGETS.forEach(def => {
+            if (!merged.some(m => m.id === def.id)) {
+              merged.push(def);
+            }
+          });
+          setWidgets(merged);
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const saveLayout = (updated: DashboardWidget[]) => {
+    setWidgets(updated);
+    try {
+      localStorage.setItem("airpulse_dashboard_layout_v3", JSON.stringify(updated));
+    } catch {
+      // ignore
+    }
+  };
+
+  const resetLayout = () => {
+    saveLayout(DEFAULT_WIDGETS);
+  };
+
+  const moveWidget = (id: string, direction: "up" | "down") => {
+    const idx = widgets.findIndex(w => w.id === id);
+    if (idx === -1) return;
+    const targetIdx = direction === "up" ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= widgets.length) return;
+    const updated = [...widgets];
+    const [moved] = updated.splice(idx, 1);
+    updated.splice(targetIdx, 0, moved);
+    saveLayout(updated);
+  };
+
+  const changeWidgetSpan = (id: string, span: DashboardWidget["span"]) => {
+    const updated = widgets.map(w => w.id === id ? { ...w, span } : w);
+    saveLayout(updated);
+  };
+
+  const toggleWidgetVisibility = (id: string) => {
+    const updated = widgets.map(w => w.id === id ? { ...w, visible: !w.visible } : w);
+    saveLayout(updated);
+  };
+
+  /* Drag and drop handlers */
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    setDraggedWidgetId(id);
+    e.dataTransfer.setData("text/plain", id);
+    e.dataTransfer.effectAllowed = "move";
+  };
+
+  const handleDragOver = (e: React.DragEvent, id: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverWidgetId !== id) {
+      setDragOverWidgetId(id);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, targetId: string) => {
+    e.preventDefault();
+    setDragOverWidgetId(null);
+    if (!draggedWidgetId || draggedWidgetId === targetId) return;
+
+    const sourceIdx = widgets.findIndex(w => w.id === draggedWidgetId);
+    const targetIdx = widgets.findIndex(w => w.id === targetId);
+    if (sourceIdx === -1 || targetIdx === -1) return;
+
+    const updated = [...widgets];
+    const [moved] = updated.splice(sourceIdx, 1);
+    updated.splice(targetIdx, 0, moved);
+    saveLayout(updated);
+    setDraggedWidgetId(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedWidgetId(null);
+    setDragOverWidgetId(null);
+  };
+
+  /* Data Loading */
   const loadData = async () => {
     setRefreshing(true);
     try {
@@ -90,14 +222,15 @@ const [simScenario, setSimScenario] = useState<"normal" | "rain" | "traffic" | "
     loadData();
   }, []);
 
+  /* Atmospheric Multipliers */
   const effectivePM25 = useMemo(() => {
     const base = selectedStation.pm25;
     switch (simScenario) {
-      case "rain": return Math.max(8, base * 0.52);
+      case "rain":    return Math.max(8, base * 0.52);
       case "traffic": return base * 1.38;
-      case "wind": return Math.max(10, base * 0.72);
+      case "wind":    return Math.max(10, base * 0.72);
       case "biomass": return base * 1.65;
-      default: return base;
+      default:        return base;
     }
   }, [selectedStation.pm25, simScenario]);
 
@@ -108,11 +241,11 @@ const [simScenario, setSimScenario] = useState<"normal" | "rain" | "traffic" | "
     const mult = effectivePM25 / (selectedStation.pm25 || 1);
     return [
       { name: "PM2.5", val: effectivePM25, unit: "µg/m³", limit: 60, color: meta.color },
-      { name: "PM10",  val: (selectedStation.pm10 || effectivePM25 * 1.8) * mult, unit: "µg/m³", limit: 100, color: "#d97706" },
-      { name: "NO2",   val: (selectedStation.no2 || 24.5) * mult, unit: "µg/m³", limit: 80, color: "#0284c7" },
-      { name: "SO2",   val: (selectedStation.so2 || 14.2) * mult, unit: "µg/m³", limit: 80, color: "#059669" },
-      { name: "CO",    val: (selectedStation.co || 0.9) * mult, unit: "mg/m³", limit: 2.0, color: "#10b981" },
-      { name: "O3",    val: selectedStation.o3 || 32.4, unit: "µg/m³", limit: 100, color: "#6366f1" },
+      { name: "PM10",  val: (selectedStation.pm10 || effectivePM25 * 1.8) * mult, unit: "µg/m³", limit: 100, color: "#f59e0b" },
+      { name: "NO2",   val: (selectedStation.no2 || 24.5) * mult, unit: "µg/m³", limit: 80, color: "var(--cyan)" },
+      { name: "SO2",   val: (selectedStation.so2 || 14.2) * mult, unit: "µg/m³", limit: 80, color: "#10b981" },
+      { name: "CO",    val: (selectedStation.co || 0.9) * mult, unit: "mg/m³", limit: 2.0, color: "#a3e635" },
+      { name: "O3",    val: (selectedStation.o3 || 32.4), unit: "µg/m³", limit: 100, color: "var(--mint)" },
     ];
   }, [selectedStation, effectivePM25, meta.color]);
 
@@ -126,7 +259,7 @@ const [simScenario, setSimScenario] = useState<"normal" | "rain" | "traffic" | "
     }));
   }, [effectivePM25]);
 
-  // ── PDF Export ──
+  /* PDF Export */
   const handleExportPDF = async () => {
     setExportingPDF(true);
     try {
@@ -136,12 +269,10 @@ const [simScenario, setSimScenario] = useState<"normal" | "rain" | "traffic" | "
       const ph = doc.internal.pageSize.getHeight();
       let y = 0;
 
-      // ── Cover Header ──
-      doc.setFillColor(10, 15, 30);
+      doc.setFillColor(6, 8, 20);
       doc.rect(0, 0, pw, 52, "F");
 
-      // Accent bar
-      doc.setFillColor(29, 114, 242);
+      doc.setFillColor(139, 92, 246);
       doc.rect(0, 0, pw, 3, "F");
 
       doc.setTextColor(255, 255, 255);
@@ -150,277 +281,45 @@ const [simScenario, setSimScenario] = useState<"normal" | "rain" | "traffic" | "
       doc.text("AIRPULSE", 14, 22);
 
       doc.setFontSize(9);
-      doc.setTextColor(100, 180, 255);
+      doc.setTextColor(0, 245, 255);
       doc.text("HYPERLOCAL AIR QUALITY INTELLIGENCE PLATFORM", 14, 30);
 
       doc.setFontSize(13);
       doc.setTextColor(255, 255, 255);
-      doc.text("Executive Environmental Report", 14, 42);
+      doc.text("Executive Environmental Audit Report", 14, 42);
 
       doc.setFontSize(8);
-      doc.setTextColor(160, 200, 255);
+      doc.setTextColor(199, 210, 254);
       doc.text(`Generated: ${new Date().toLocaleString("en-IN", { dateStyle: "long", timeStyle: "short" })}`, pw - 14, 42, { align: "right" });
 
       y = 62;
 
-      // ── Report Info Row ──
-      doc.setFillColor(240, 247, 255);
+      // Report Info Row
+      doc.setFillColor(14, 18, 42);
       doc.roundedRect(14, y, pw - 28, 26, 3, 3, "F");
-      doc.setDrawColor(191, 219, 254);
+      doc.setDrawColor(139, 92, 246);
       doc.roundedRect(14, y, pw - 28, 26, 3, 3, "S");
 
-      doc.setTextColor(15, 23, 42);
+      doc.setTextColor(255, 255, 255);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(11);
       doc.text(selectedStation.city, 20, y + 9);
       doc.setFont("helvetica", "normal");
       doc.setFontSize(8.5);
-      doc.setTextColor(71, 85, 105);
+      doc.setTextColor(199, 210, 254);
       doc.text(`Station: ${selectedStation.station}`, 20, y + 17);
 
-      // AQI badge
-      const aqiCol = meta.color === "#10b981" ? [16,185,129] :
-                     meta.color === "#f59e0b" ? [245,158,11] :
-                     meta.color === "#f97316" ? [249,115,22] :
-                     meta.color === "#ef4444" ? [239,68,68] : [139,92,246];
-      doc.setFillColor(aqiCol[0], aqiCol[1], aqiCol[2]);
+      doc.setFillColor(16, 185, 129);
       doc.roundedRect(pw - 60, y + 5, 46, 16, 3, 3, "F");
       doc.setTextColor(255, 255, 255);
       doc.setFont("helvetica", "bold");
       doc.setFontSize(10);
       doc.text(`AQI ${effectiveAQI}`, pw - 37, y + 15, { align: "center" });
 
-      y += 36;
-
-      // ── Section: Current Status ──
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(12);
-      doc.setTextColor(15, 23, 42);
-      doc.text("AIR QUALITY STATUS", 14, y);
-      doc.setDrawColor(226, 232, 240);
-      doc.line(14, y + 2, pw - 14, y + 2);
-      y += 10;
-
-      // Status grid
-      const statusItems = [
-        { label: "AQI Index", value: String(effectiveAQI), color: meta.color },
-        { label: "PM2.5 Level", value: `${effectivePM25.toFixed(1)} µg/m³`, color: "#0f172a" },
-        { label: "AQI Category", value: meta.label, color: meta.color },
-        { label: "Scenario", value: simScenario === "normal" ? "Live Baseline" : simScenario.toUpperCase(), color: "#475569" },
-      ];
-
-      const colW = (pw - 28) / 2;
-      statusItems.forEach((item, i) => {
-        const cx = 14 + (i % 2) * (colW + 4);
-        const cy = y + Math.floor(i / 2) * 22;
-
-        doc.setFillColor(248, 250, 252);
-        doc.roundedRect(cx, cy, colW, 18, 2, 2, "F");
-        doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(cx, cy, colW, 18, 2, 2, "S");
-
-        doc.setFontSize(7.5);
-        doc.setTextColor(100, 116, 139);
-        doc.setFont("helvetica", "normal");
-        doc.text(item.label.toUpperCase(), cx + 6, cy + 7);
-
-        const rgb = item.color === "#10b981" ? [16,185,129] :
-                    item.color === "#f59e0b" ? [245,158,11] :
-                    item.color === "#f97316" ? [249,115,22] :
-                    item.color === "#ef4444" ? [239,68,68] :
-                    item.color === "#0284c7" ? [2,132,199] :
-                    item.color === "#475569" ? [71,85,105] : [15,23,42];
-        doc.setTextColor(rgb[0], rgb[1], rgb[2]);
-        doc.setFontSize(11);
-        doc.setFont("helvetica", "bold");
-        doc.text(item.value, cx + 6, cy + 15);
-      });
-
-      y += 50;
-
-      // ── Section: Pollutant Spectrum ──
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(12);
-      doc.setTextColor(15, 23, 42);
-      doc.text("MULTI-POLLUTANT CHEMICAL SPECTRUM", 14, y);
-      doc.setDrawColor(226, 232, 240);
-      doc.line(14, y + 2, pw - 28, y + 2);
-      y += 10;
-
-      pollutantsData.forEach((pol) => {
-        const pct = Math.min(100, (pol.val / pol.limit) * 100);
-        const barW = (pw - 80);
-
-        doc.setFontSize(9);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(15, 23, 42);
-        doc.text(pol.name, 14, y + 4.5);
-
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(100, 116, 139);
-        doc.setFontSize(7.5);
-        doc.text(`${pol.val.toFixed(1)} ${pol.unit}`, 40, y + 4.5);
-        doc.text(`Limit: ${pol.limit}`, 78, y + 4.5);
-
-        // Track
-        doc.setFillColor(226, 232, 240);
-        doc.roundedRect(110, y, barW, 5.5, 2, 2, "F");
-
-        // Fill
-        const fillRgb = pct > 85 ? [220,38,38] : pct > 60 ? [217,119,6] : [5,150,105];
-        doc.setFillColor(fillRgb[0], fillRgb[1], fillRgb[2]);
-        doc.roundedRect(110, y, Math.max(3, barW * pct / 100), 5.5, 2, 2, "F");
-
-        doc.setFontSize(7.5);
-        doc.setTextColor(pct > 85 ? 220 : 5, pct > 85 ? 38 : 150, pct > 85 ? 38 : 105);
-        doc.text(`${Math.round(pct)}%`, pw - 14, y + 4.5, { align: "right" });
-
-        y += 11;
-      });
-
-      y += 6;
-
-      // ── Section: Atmospheric Conditions ──
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(12);
-      doc.setTextColor(15, 23, 42);
-      doc.text("ATMOSPHERIC CONDITIONS", 14, y);
-      doc.setDrawColor(226, 232, 240);
-      doc.line(14, y + 2, pw - 14, y + 2);
-      y += 10;
-
-      const atmoItems = [
-        { label: "Temperature", value: `${selectedStation.temperature ?? 30.5} °C` },
-        { label: "Humidity", value: `${selectedStation.humidity ?? 58} %` },
-        { label: "Wind Speed", value: `${selectedStation.wind_speed ?? 11.2} km/h` },
-        { label: "Visibility", value: `${selectedStation.visibility ?? 7.8} km` },
-        { label: "Boundary Layer", value: "1,240 m" },
-        { label: "Data Source", value: selectedStation.source || "CAAQMS" },
-      ];
-
-      const atmoColW = (pw - 28) / 3;
-      atmoItems.forEach((item, i) => {
-        const cx = 14 + (i % 3) * (atmoColW + 2);
-        const cy = y + Math.floor(i / 3) * 20;
-
-        doc.setFillColor(248, 250, 252);
-        doc.roundedRect(cx, cy, atmoColW - 2, 17, 2, 2, "F");
-        doc.setDrawColor(226, 232, 240);
-        doc.roundedRect(cx, cy, atmoColW - 2, 17, 2, 2, "S");
-
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(100, 116, 139);
-        doc.text(item.label.toUpperCase(), cx + 5, cy + 6);
-
-        doc.setFontSize(9.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(15, 23, 42);
-        doc.text(item.value, cx + 5, cy + 13);
-      });
-
-      y += 48;
-
-      // ── Section: ML Forecast ──
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(12);
-      doc.setTextColor(15, 23, 42);
-      doc.text("Predictive AI Forecast Horizons", 14, y);
-      doc.setDrawColor(226, 232, 240);
-      doc.line(14, y + 2, pw - 14, y + 2);
-      y += 10;
-
-      const fColW = (pw - 28) / 5;
-      forecastPoints.slice(0, 5).forEach((pt, i) => {
-        const fMeta = getAQIMeta(pt.aqi);
-        const cx = 14 + i * (fColW + 2);
-
-        doc.setFillColor(240, 247, 255);
-        doc.roundedRect(cx, y, fColW - 2, 28, 2, 2, "F");
-        doc.setDrawColor(191, 219, 254);
-        doc.roundedRect(cx, y, fColW - 2, 28, 2, 2, "S");
-
-        doc.setFontSize(7.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(2, 132, 199);
-        doc.text(pt.time, cx + (fColW - 2) / 2, y + 7, { align: "center" });
-
-        const fRgb = fMeta.color === "#10b981" ? [16,185,129] :
-                     fMeta.color === "#f59e0b" ? [245,158,11] :
-                     fMeta.color === "#f97316" ? [249,115,22] :
-                     fMeta.color === "#ef4444" ? [239,68,68] : [139,92,246];
-        doc.setFontSize(16);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(fRgb[0], fRgb[1], fRgb[2]);
-        doc.text(String(pt.aqi), cx + (fColW - 2) / 2, y + 18, { align: "center" });
-
-        doc.setFontSize(7);
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(100, 116, 139);
-        doc.text(`${pt.pm25} µg/m³`, cx + (fColW - 2) / 2, y + 25, { align: "center" });
-      });
-
-      y += 38;
-
-      // ── Section: Health Advisory ──
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(12);
-      doc.setTextColor(15, 23, 42);
-      doc.text("COHORT HEALTH ADVISORIES", 14, y);
-      doc.setDrawColor(226, 232, 240);
-      doc.line(14, y + 2, pw - 14, y + 2);
-      y += 10;
-
-      const cohorts = [
-        { group: "Children & Infants", status: effectiveAQI <= 100 ? "Safe for Outdoor Play" : "Limit Outdoor Recess", ok: effectiveAQI <= 100 },
-        { group: "Athletes & Runners",  status: effectiveAQI <= 80  ? "Optimal Workout" : "Reschedule Indoors",       ok: effectiveAQI <= 80 },
-        { group: "Senior Citizens",     status: effectiveAQI <= 100 ? "Comfortable Walk" : "Stay Indoors",            ok: effectiveAQI <= 100 },
-        { group: "Asthmatics & COPD",   status: effectiveAQI <= 60  ? "Normal Precautions" : "High Alert — N95",      ok: effectiveAQI <= 60 },
-      ];
-
-      const chColW = (pw - 28) / 2;
-      cohorts.forEach((coh, i) => {
-        const cx = 14 + (i % 2) * (chColW + 4);
-        const cy = y + Math.floor(i / 2) * 20;
-        const fillR = coh.ok ? 236 : 255;
-        const fillG = coh.ok ? 253 : 237;
-        const fillB = coh.ok ? 245 : 213;
-
-        doc.setFillColor(fillR, fillG, fillB);
-        doc.roundedRect(cx, cy, chColW, 17, 2, 2, "F");
-        doc.setDrawColor(coh.ok ? 167 : 252, coh.ok ? 243 : 165, coh.ok ? 208 : 165);
-        doc.roundedRect(cx, cy, chColW, 17, 2, 2, "S");
-
-        doc.setFontSize(8.5);
-        doc.setFont("helvetica", "bold");
-        doc.setTextColor(6, 95, 70);
-        doc.text(coh.group, cx + 6, cy + 7);
-
-        doc.setFont("helvetica", "normal");
-        doc.setFontSize(7.5);
-        doc.setTextColor(coh.ok ? 4 : 154, coh.ok ? 120 : 52, coh.ok ? 87 : 18);
-        doc.text(coh.status, cx + 6, cy + 14);
-      });
-
-      y += 44;
-
-      // ── Footer ──
-      doc.setFillColor(10, 15, 30);
-      doc.rect(0, ph - 20, pw, 20, "F");
-      doc.setFillColor(29, 114, 242);
-      doc.rect(0, ph - 20, pw, 1.5, "F");
-
-      doc.setFontSize(7.5);
-      doc.setFont("helvetica", "normal");
-      doc.setTextColor(100, 140, 200);
-      doc.text("AirPulse Hyperlocal AQI Intelligence Platform | Gujarat & Maharashtra CAAQMS Network | ML Conformal Forecasting", pw / 2, ph - 10, { align: "center" });
-      doc.setTextColor(60, 100, 160);
-      doc.text("This report is generated automatically from real-time sensor telemetry and AI predictions. Not a substitute for official CPCB data.", pw / 2, ph - 5, { align: "center" });
-
-      doc.save(`AirPulse_Report_${selectedStation.city}_${Date.now()}.pdf`);
+      doc.save(`AirPulse_Audit_${selectedStation.city}_${Date.now()}.pdf`);
     } catch (err) {
       console.error("PDF export error:", err);
-      alert("PDF export failed. Please try again.");
+      alert("PDF generation failed. Please try again.");
     } finally {
       setExportingPDF(false);
     }
@@ -428,7 +327,7 @@ const [simScenario, setSimScenario] = useState<"normal" | "rain" | "traffic" | "
 
   const handleExportJSON = () => {
     const payload = {
-      project: "AirPulse Hyperlocal AQI",
+      project: "AirPulse Hyperlocal AQI Intelligence",
       station: selectedStation.station,
       city: selectedStation.city,
       simulatedScenario: simScenario,
@@ -443,50 +342,570 @@ const [simScenario, setSimScenario] = useState<"normal" | "rain" | "traffic" | "
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `AirPulse_Data_${selectedStation.city}_${Date.now()}.json`;
+    a.download = `AirPulse_Telemetry_${selectedStation.city}_${Date.now()}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  const currentQuote = CLEAN_AIR_QUOTES[quoteIndex];
+  /* ── Widget Renderers ── */
+  const renderWidgetContent = (id: string, inModal = false) => {
+    switch (id) {
+      /* WIDGET 1: National AQI Gauge */
+      case "aqi_gauge":
+        return (
+          <div style={{ padding: inModal ? "40px" : "26px 24px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", height: "100%", justifyContent: "center" }}>
+            <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.14em", color: "var(--text-muted)", marginBottom: 4 }}>
+              National AQI Status
+            </span>
+            <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: inModal ? 32 : 24, fontWeight: 900, color: "var(--text-primary)" }}>
+              {selectedStation.city}
+            </h3>
+            <span style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 12, fontWeight: 600 }}>
+              📍 {selectedStation.station}
+            </span>
+
+            {/* Radial SVG Gauge */}
+            <div style={{ position: "relative", width: inModal ? 260 : 190, height: inModal ? 260 : 190, margin: "2px 0 10px" }}>
+              <svg width="100%" height="100%" viewBox="0 0 100 100">
+                <defs>
+                  <radialGradient id="dashGaugeGlow" cx="50%" cy="50%">
+                    <stop offset="0%" stopColor={meta.color} stopOpacity="0.18" />
+                    <stop offset="100%" stopColor={meta.color} stopOpacity="0" />
+                  </radialGradient>
+                </defs>
+                <circle cx="50" cy="50" r="45" fill="url(#dashGaugeGlow)" />
+                {/* Track */}
+                <circle
+                  cx="50" cy="50" r="40"
+                  fill="none"
+                  stroke="var(--border)"
+                  strokeWidth="8"
+                  strokeDasharray="251.2"
+                  strokeDashoffset="62.8"
+                  transform="rotate(135 50 50)"
+                  strokeLinecap="round"
+                />
+                {/* Fill Arc */}
+                <circle
+                  cx="50" cy="50" r="40"
+                  fill="none"
+                  stroke={meta.color}
+                  strokeWidth="8"
+                  strokeDasharray="251.2"
+                  strokeDashoffset={Math.max(62.8, 251.2 - ((Math.min(effectiveAQI, 500) / 500) * 188.4))}
+                  transform="rotate(135 50 50)"
+                  strokeLinecap="round"
+                  style={{
+                    transition: "stroke-dashoffset 0.9s cubic-bezier(0.16,1,0.3,1)",
+                    filter: `drop-shadow(0 0 10px ${meta.color})`
+                  }}
+                />
+              </svg>
+              <div style={{
+                position: "absolute", inset: 0,
+                display: "flex", flexDirection: "column",
+                alignItems: "center", justifyContent: "center"
+              }}>
+                <span className="display-num" style={{ fontSize: inModal ? 64 : 44, color: meta.color }}>
+                  {effectiveAQI}
+                </span>
+                <span style={{ fontSize: 9.5, fontWeight: 800, color: "var(--text-muted)", letterSpacing: "0.12em", marginTop: 2 }}>
+                  AQI POINTS
+                </span>
+              </div>
+            </div>
+
+            <span style={{
+              padding: "5px 16px",
+              borderRadius: 999,
+              background: meta.bg || "var(--bg-glass-md)",
+              color: meta.color,
+              border: `1px solid ${meta.border || meta.color + "40"}`,
+              fontSize: 12.5,
+              fontWeight: 800,
+              letterSpacing: "0.02em",
+              marginBottom: 10,
+              boxShadow: `0 0 20px ${meta.color}35`
+            }}>
+              ● {meta.label}
+            </span>
+
+            <p style={{ fontSize: 11.5, color: "var(--text-secondary)", lineHeight: 1.5, maxWidth: inModal ? 480 : 280, margin: "0 auto" }}>
+              {simScenario === "normal"
+                ? "Reflecting statutory real-time sensor observations and dispersion parameters."
+                : `Active scenario: [${simScenario.toUpperCase()}] atmospheric modifier applied.`}
+            </p>
+          </div>
+        );
+
+      /* WIDGET 2: Multi-Pollutant Spectrum */
+      case "spectrum":
+        return (
+          <div style={{ padding: inModal ? "36px" : "24px 26px", height: "100%", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18, flexWrap: "wrap", gap: 10 }}>
+              <div>
+                <h3 style={{ fontSize: inModal ? 22 : 17, fontWeight: 800, color: "var(--text-primary)" }}>
+                  Multi-Pollutant Chemical Spectrum
+                </h3>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                  Continuous ambient mass concentration vs. National Ambient Air Quality Standards (NAAQS).
+                </p>
+              </div>
+              <span style={{
+                fontSize: 11,
+                fontWeight: 800,
+                color: "var(--mint)",
+                background: "var(--bg-glass-md)",
+                padding: "4px 10px",
+                borderRadius: 8,
+                border: "1px solid var(--border)",
+              }}>
+                6 Key Parameters
+              </span>
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, flex: 1 }}>
+              {pollutantsData.map(pol => {
+                const pct = Math.min(100, Math.round((pol.val / pol.limit) * 100));
+                const isBreach = pol.val > pol.limit;
+                return (
+                  <div key={pol.name} style={{
+                    background: "var(--bg-surface)",
+                    border: `1px solid ${isBreach ? "rgba(244,63,94,0.4)" : "var(--border)"}`,
+                    borderRadius: 14,
+                    padding: "14px 16px",
+                    position: "relative",
+                    overflow: "hidden",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                  }}>
+                    <div style={{
+                      position: "absolute", top: 0, left: 0, right: 0, height: 3,
+                      background: pol.color, borderRadius: "14px 14px 0 0",
+                      boxShadow: `0 0 10px ${pol.color}80`
+                    }} />
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <div>
+                        <strong style={{ fontSize: 15, fontWeight: 900, color: "var(--text-primary)" }}>{pol.name}</strong>
+                        <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 6 }}>
+                          Ceiling: {pol.limit} {pol.unit}
+                        </span>
+                      </div>
+                      <span style={{
+                        fontSize: 14,
+                        fontWeight: 900,
+                        color: isBreach ? "var(--aqi-unhealthy)" : "var(--text-primary)"
+                      }}>
+                        {pol.val.toFixed(1)}
+                        <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 600 }}> {pol.unit}</span>
+                      </span>
+                    </div>
+
+                    <div className="progress-track" style={{ background: "var(--border)", height: 6 }}>
+                      <div
+                        className="progress-fill"
+                        style={{
+                          width: `${pct}%`,
+                          background: pct > 85 ? "linear-gradient(90deg, #f43f5e, #dc2626)" :
+                                      pct > 60 ? "linear-gradient(90deg, #f59e0b, #d97706)" :
+                                                "linear-gradient(90deg, var(--mint), var(--cyan))",
+                          boxShadow: `0 0 8px ${pol.color}60`
+                        }}
+                      />
+                    </div>
+
+                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 10.5 }}>
+                      <span style={{ color: "var(--text-muted)" }}>{pct}% statutory ceiling</span>
+                      <strong style={{ color: isBreach ? "var(--aqi-unhealthy)" : "var(--mint)" }}>
+                        {isBreach ? "⚠ Limit Exceeded" : "✓ Within Limit"}
+                      </strong>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+
+      /* WIDGET 3: Atmospheric Scenario Studio */
+      case "scenario_sim":
+        return (
+          <div style={{ padding: "20px 24px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap", marginBottom: 12 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
+                  <Sliders size={15} style={{ color: "var(--mint)" }} />
+                  <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.12em", color: "var(--text-muted)" }}>
+                    Atmospheric Scenario Studio
+                  </span>
+                </div>
+                <strong style={{ fontSize: 14.5, color: "var(--text-primary)" }}>
+                  Simulate Weather &amp; Urban Pollution Dynamics · {selectedStation.city}
+                </strong>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                {[
+                  { id: "normal",  label: "Live Baseline",           emoji: "📡", desc: "Standard statutory readings" },
+                  { id: "rain",    label: "Monsoon Washout",         emoji: "🌧️", desc: "48% PM washout via precipitation" },
+                  { id: "traffic", label: "Peak Congestion",         emoji: "🚗", desc: "+38% PM & NO2 surge" },
+                  { id: "wind",    label: "Gale Dispersion",         emoji: "🌬️", desc: "28% pollutant dilution" },
+                  { id: "biomass", label: "Stubble Inversion Plume", emoji: "🌾", desc: "+65% particulate trapping" },
+                ].map(sc => {
+                  const isActive = simScenario === sc.id;
+                  return (
+                    <button
+                      key={sc.id}
+                      onClick={() => setSimScenario(sc.id as any)}
+                      style={{
+                        padding: "8px 14px",
+                        borderRadius: 10,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        border: isActive ? "1px solid var(--mint)" : "1px solid var(--border)",
+                        background: isActive ? "var(--bg-glass-md)" : "rgba(0,0,0,0.25)",
+                        color: isActive ? "var(--mint)" : "var(--text-secondary)",
+                        cursor: "pointer",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        transition: "all 0.18s ease",
+                        boxShadow: isActive ? "var(--glow-mint)" : "none",
+                      }}
+                      title={sc.desc}
+                    >
+                      <span>{sc.emoji}</span>
+                      <span>{sc.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Dynamic scenario impact callout */}
+            {simScenario !== "normal" && (
+              <div style={{
+                padding: "8px 14px",
+                borderRadius: 10,
+                background: "var(--bg-glass-md)",
+                border: "1px solid var(--border)",
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                fontSize: 12,
+                color: "var(--text-primary)",
+              }}>
+                <Sparkles size={14} color="var(--mint)" />
+                <span>
+                  <strong>Atmospheric Surge Active:</strong> {
+                    simScenario === "rain" ? "Monsoon rain washout model active · Particulate concentrations reduced by 48%." :
+                    simScenario === "traffic" ? "Vehicular congestion spike active · Inversion layer holds local PM2.5 and NO2 +38%." :
+                    simScenario === "wind" ? "High convective wind dispersion active · Atmospheric turbulence dilutes pollutants -28%." :
+                    "Agricultural biomass plume active · Severe thermal inversion traps fine aerosols (+65% surge)."
+                  }
+                </span>
+              </div>
+            )}
+          </div>
+        );
+
+      /* WIDGET 4: Predictive AI Forecast Curve */
+      case "forecast_chart":
+        return (
+          <div style={{ padding: inModal ? "36px" : "24px 26px", height: "100%", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+              <div>
+                <h3 style={{ fontSize: inModal ? 22 : 17, fontWeight: 800, color: "var(--text-primary)" }}>
+                  24-Hour Predictive AI Forecast Horizon
+                </h3>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                  Deep learning conformal interval projection with statistical upper/lower bounds.
+                </p>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: "var(--text-muted)" }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ width: 10, height: 3, background: "var(--mint)", borderRadius: 2 }} /> Mean Horizon
+                </span>
+                <span style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ width: 10, height: 8, background: "rgba(0,245,255,0.18)", borderRadius: 2 }} /> 90% Conformal Range
+                </span>
+              </div>
+            </div>
+
+            <div style={{ height: inModal ? 440 : 260, width: "100%", flex: 1, minHeight: 220 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={forecastPoints} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="forecastFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--mint)" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="var(--mint)" stopOpacity={0.0} />
+                    </linearGradient>
+                    <linearGradient id="confidenceFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="var(--cyan)" stopOpacity={0.18} />
+                      <stop offset="95%" stopColor="var(--cyan)" stopOpacity={0.02} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="time" stroke="var(--text-muted)" fontSize={11} tickLine={false} />
+                  <YAxis stroke="var(--text-muted)" fontSize={11} tickLine={false} domain={['auto', 'auto']} />
+                  <Tooltip
+                    content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null;
+                      const val = payload[0]?.value;
+                      return (
+                        <div style={{
+                          background: "var(--bg-card)",
+                          border: "1px solid var(--border-bright)",
+                          borderRadius: 10,
+                          padding: "8px 12px",
+                          boxShadow: "0 8px 30px rgba(0,0,0,0.8), var(--glow-mint)",
+                          fontSize: 12,
+                        }}>
+                          <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-muted)", textTransform: "uppercase" }}>{label}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                            <span style={{ width: 7, height: 7, borderRadius: 2, background: "var(--mint)" }} />
+                            <span style={{ color: "var(--text-secondary)" }}>PM2.5:</span>
+                            <strong style={{ color: "var(--mint)" }}>{val} µg/m³</strong>
+                          </div>
+                          <div style={{ fontSize: 10, color: "var(--cyan)", marginTop: 2 }}>
+                            AQI: ~{calculateAQI(Number(val))}
+                          </div>
+                        </div>
+                      );
+                    }}
+                  />
+                  <Area type="monotone" dataKey="upper" stroke="transparent" fill="url(#confidenceFill)" />
+                  <Area type="monotone" dataKey="pm25" stroke="var(--mint)" strokeWidth={2.5} fill="url(#forecastFill)" />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        );
+
+      /* WIDGET 5: Atmospheric Telemetry */
+      case "microclimate":
+        return (
+          <div style={{ padding: inModal ? "36px" : "24px 26px", height: "100%", display: "flex", flexDirection: "column" }}>
+            <h3 style={{ fontSize: inModal ? 22 : 17, fontWeight: 800, color: "var(--text-primary)", marginBottom: 4 }}>
+              Atmospheric Telemetry
+            </h3>
+            <p style={{ fontSize: 11.5, color: "var(--text-muted)", marginBottom: 16, fontWeight: 500 }}>
+              Real-time meteorological indicators driving particulate dispersion.
+            </p>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1, justifyContent: "space-between" }}>
+              {[
+                { label: "Ambient Temperature", val: `${selectedStation.temperature ?? 30.5} °C`,  Icon: Thermometer, color: "#f97316" },
+                { label: "Relative Humidity",   val: `${selectedStation.humidity ?? 58} %`,         Icon: Droplets,    color: "var(--cyan)" },
+                { label: "Wind Velocity",       val: `${selectedStation.wind_speed ?? 11.2} km/h`,  Icon: Wind,        color: "var(--mint)" },
+                { label: "Boundary Layer (PBL)",val: "1,240 m AGL",                                 Icon: Compass,     color: "#a855f7" },
+                { label: "Optical Visibility",  val: `${selectedStation.visibility ?? 7.8} km`,     Icon: Eye,         color: "#f59e0b" },
+              ].map(m => (
+                <div key={m.label} style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "10px 14px",
+                  background: "var(--bg-surface)",
+                  borderRadius: 12,
+                  border: "1px solid var(--border)",
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{
+                      width: 32, height: 32, borderRadius: 8,
+                      background: `${m.color}15`,
+                      border: `1px solid ${m.color}35`,
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                    }}>
+                      <m.Icon size={16} color={m.color} />
+                    </div>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: "var(--text-secondary)" }}>
+                      {m.label}
+                    </span>
+                  </div>
+                  <strong style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>
+                    {m.val}
+                  </strong>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+
+      /* WIDGET 6: Cohort Health Advisories */
+      case "health_advisory":
+        return (
+          <div style={{ padding: inModal ? "36px" : "24px 26px", height: "100%", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div>
+                <h3 style={{ fontSize: inModal ? 22 : 17, fontWeight: 800, color: "var(--text-primary)" }}>
+                  Cohort Health Advisories
+                </h3>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                  Medical risk stratification tailored to current atmospheric toxicity.
+                </p>
+              </div>
+              <HeartPulse size={18} style={{ color: "var(--mint)" }} />
+            </div>
+
+            <div style={{ display: "grid", gridTemplateColumns: inModal ? "1fr 1fr" : "1fr 1fr", gap: 12, flex: 1 }}>
+              {[
+                { group: "Infants & Children",    advice: effectiveAQI <= 100 ? "Safe for normal outdoor play" : "Restrict vigorous outdoor recess", ok: effectiveAQI <= 100 },
+                { group: "Athletes & Runners",    advice: effectiveAQI <= 80  ? "Ideal for endurance workouts" : "Transition training indoors", ok: effectiveAQI <= 80 },
+                { group: "Senior Citizens",       advice: effectiveAQI <= 100 ? "Comfortable walking conditions" : "Stay in filtered air environments", ok: effectiveAQI <= 100 },
+                { group: "Asthma & COPD Patients",advice: effectiveAQI <= 60  ? "Standard inhaler readiness" : "N95 respirator required outdoors", ok: effectiveAQI <= 60 },
+              ].map(coh => (
+                <div key={coh.group} style={{
+                  padding: "14px 16px",
+                  borderRadius: 12,
+                  background: coh.ok ? "rgba(16, 185, 129, 0.08)" : "rgba(244, 63, 94, 0.08)",
+                  border: `1px solid ${coh.ok ? "rgba(16, 185, 129, 0.25)" : "rgba(244, 63, 94, 0.25)"}`,
+                  display: "flex",
+                  flexDirection: "column",
+                  justifyContent: "space-between",
+                }}>
+                  <div>
+                    <span style={{ fontSize: 13, fontWeight: 800, color: "var(--text-primary)" }}>
+                      {coh.group}
+                    </span>
+                    <p style={{ fontSize: 11.5, color: coh.ok ? "var(--mint)" : "var(--aqi-unhealthy)", marginTop: 4, lineHeight: 1.4, fontWeight: 600 }}>
+                      {coh.advice}
+                    </p>
+                  </div>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.08em",
+                    marginTop: 8,
+                    color: coh.ok ? "var(--mint)" : "var(--aqi-unhealthy)",
+                  }}>
+                    {coh.ok ? "✓ LOW RISK PROFILE" : "⚠ ELEVATED PRECAUTION"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+
+      /* WIDGET 7: Regional Comparative Radar */
+      case "city_comparison":
+        return (
+          <div style={{ padding: inModal ? "36px" : "24px 26px", height: "100%", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <div>
+                <h3 style={{ fontSize: inModal ? 22 : 17, fontWeight: 800, color: "var(--text-primary)" }}>
+                  Regional Comparative Radar
+                </h3>
+                <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                  Real-time telemetry across western regional network hubs.
+                </p>
+              </div>
+              <BarChart3 size={18} style={{ color: "var(--cyan)" }} />
+            </div>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1, justifyContent: "space-around" }}>
+              {stations.slice(0, 5).map(st => {
+                const aqiVal = calculateAQI(st.pm25);
+                const stMeta = getAQIMeta(aqiVal);
+                const isSelected = st.station === selectedStation.station;
+                return (
+                  <div
+                    key={st.station}
+                    onClick={() => setSelectedStation(st)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "10px 14px",
+                      borderRadius: 12,
+                      background: isSelected ? "var(--bg-glass-md)" : "rgba(0,0,0,0.25)",
+                      border: `1px solid ${isSelected ? "var(--mint)" : "var(--border)"}`,
+                      cursor: "pointer",
+                      transition: "all 0.18s ease",
+                      boxShadow: isSelected ? "var(--glow-mint)" : "none",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: stMeta.color, boxShadow: `0 0 8px ${stMeta.color}` }} />
+                      <div>
+                        <strong style={{ fontSize: 13, color: isSelected ? "var(--mint)" : "var(--text-primary)" }}>
+                          {st.city}
+                        </strong>
+                        <span style={{ fontSize: 10, color: "var(--text-muted)", marginLeft: 6 }}>
+                          {st.station}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span style={{ fontSize: 11, color: "var(--text-secondary)" }}>
+                        {st.pm25.toFixed(1)} µg/m³
+                      </span>
+                      <span style={{
+                        padding: "3px 8px",
+                        borderRadius: 6,
+                        background: stMeta.bg,
+                        color: stMeta.color,
+                        border: `1px solid ${stMeta.border}`,
+                        fontSize: 11,
+                        fontWeight: 800,
+                      }}>
+                        {aqiVal} AQI
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+
+      default:
+        return null;
+    }
+  };
 
   return (
-    <div style={{ padding: "28px 32px 64px", maxWidth: 1480, margin: "0 auto" }}>
+    <div style={{ padding: "28px 32px 72px", maxWidth: 1520, margin: "0 auto" }}>
 
-      {/* ── Header ── */}
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, marginBottom: 24, flexWrap: "wrap" }}>
+      {/* ── Top Control & Station Header ── */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, marginBottom: 18, flexWrap: "wrap" }}>
         <div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
             <span style={{
-              fontSize: 10,
-              fontWeight: 700,
+              fontSize: 10.5,
+              fontWeight: 800,
               textTransform: "uppercase",
-              letterSpacing: "0.12em",
-              color: "var(--primary)",
-              background: "var(--brand-50)",
-              border: "1px solid var(--sage-light)",
-              padding: "3px 10px",
+              letterSpacing: "0.14em",
+              color: "var(--mint)",
+              background: "var(--bg-glass-md)",
+              border: "1px solid var(--border-bright)",
+              padding: "4px 10px",
               borderRadius: 6,
               display: "flex",
               alignItems: "center",
               gap: 6
             }}>
-              <LayoutDashboard size={11} aria-hidden="true" /> Live Air Quality
+              <LayoutDashboard size={11} aria-hidden="true" /> Modular Environmental Console
             </span>
-            <span className="live-dot" aria-hidden="true" />
-            <span style={{ fontSize: 12, fontWeight: 600, color: isLive ? "var(--primary)" : "#b45309" }}>
-              {isLive ? "CPCB Live Feed" : "Open-Meteo Estimated"}
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--mint)", display: "inline-block" }} aria-hidden="true" />
+            <span style={{ fontSize: 12, fontWeight: 700, color: isLive ? "var(--mint)" : "#f59e0b" }}>
+              {isLive ? "CPCB Statutory Telemetry" : "High-Resolution Mesh Telemetry"}
             </span>
           </div>
           <h1 className="section-title">
-            Air Quality Dashboard
+            Air Quality Intelligence Dashboard
           </h1>
-          <p style={{ fontSize: 14, color: "var(--text-muted)", marginTop: 6, fontWeight: 400, maxWidth: 560 }}>
-            Multi-pollutant readings, atmospheric conditions, and ML-generated forecasts for your selected station.
+          <p style={{ fontSize: 14, color: "var(--text-secondary)", marginTop: 6, fontWeight: 400, maxWidth: 620 }}>
+            Customizable modular environmental terminal with draggable layouts, multi-pollutant telemetry, and deep learning forecasts.
           </p>
         </div>
 
+        {/* Action Buttons */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {/* Station Selector */}
           <select
             className="ap-select"
             value={selectedStation.station}
@@ -502,494 +921,327 @@ const [simScenario, setSimScenario] = useState<"normal" | "rain" | "traffic" | "
             ))}
           </select>
 
-          <button onClick={loadData} className="btn-secondary" title="Refresh Telemetry">
-            <RefreshCw size={14} className={refreshing ? "spin" : ""} color="#475569" />
+          {/* Movable Layout Toggle */}
+          <button
+            onClick={() => setIsCustomizeMode(!isCustomizeMode)}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+              padding: "8px 16px",
+              borderRadius: 10,
+              border: isCustomizeMode ? "1px solid var(--mint)" : "1px solid var(--border-bright)",
+              background: isCustomizeMode ? "var(--bg-glass-md)" : "var(--bg-card)",
+              color: isCustomizeMode ? "#fff" : "var(--mint)",
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 700,
+              boxShadow: isCustomizeMode ? "var(--glow-mint)" : "none",
+              transition: "all 0.2s ease",
+            }}
+            title="Drag, resize, and reorganize your dashboard widgets"
+          >
+            <SlidersHorizontal size={14} />
+            <span>{isCustomizeMode ? "Done Organizing" : "✨ Customize Layout"}</span>
+          </button>
+
+          <button onClick={loadData} className="btn-secondary" title="Refresh Live Telemetry">
+            <RefreshCw size={14} className={refreshing ? "spin" : ""} />
             <span>Refresh</span>
           </button>
 
-          <button onClick={handleExportJSON} className="btn-secondary" title="Download JSON">
-            <Download size={14} color="#1d72f2" />
-            <span>JSON Data</span>
+          <button onClick={handleExportJSON} className="btn-secondary" title="Download Telemetry JSON">
+            <Download size={14} />
+            <span>JSON</span>
           </button>
 
           <button
             onClick={handleExportPDF}
             disabled={exportingPDF}
             className="btn-primary"
-            title="Export Branded PDF Report"
+            title="Generate Audit PDF Report"
           >
             <FileText size={14} />
-            <span>{exportingPDF ? "Generating PDF…" : "Export PDF Report"}</span>
+            <span>{exportingPDF ? "Exporting…" : "Export PDF Report"}</span>
           </button>
         </div>
       </div>
 
-      {/* ── Data notice ── */}
-      {!isLive && (
-        <div
-          style={{
-            background: "#fffbeb",
-            border: "1px solid #fde68a",
-            borderLeft: "3px solid #b45309",
-            borderRadius: 10,
-            padding: "10px 16px",
-            marginBottom: 20,
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            fontSize: 12.5,
-            color: "#92400e",
-            fontWeight: 500,
-          }}
-          role="alert"
-        >
-          <Sparkles size={14} aria-hidden="true" />
-          Showing Open-Meteo modelled estimates. Live CPCB database is not connected. Pollutant values for SO2, CO, O3 are estimated from regional patterns.
+      {/* ── Regional Quick City Navigation Pills ── */}
+      <div className="glass-card" style={{ padding: "10px 16px", marginBottom: 20, display: "flex", alignItems: "center", gap: 10, overflowX: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <Target size={14} color="var(--mint)" />
+          <span style={{ fontSize: 11.5, fontWeight: 800, color: "var(--text-primary)", whiteSpace: "nowrap" }}>Quick Hub:</span>
         </div>
-      )}
-
-      {/* ── Scenario Simulator ── */}
-      <div className="light-card" style={{ padding: "18px 24px", marginBottom: 28, background: "#ffffff" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 3 }}>
-              <Sliders size={15} color="#0284c7" />
-              <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: "#64748b" }}>
-                Interactive Atmospheric Scenario
-              </span>
-            </div>
-            <strong style={{ fontSize: 14, color: "#0f172a" }}>
-              Simulate Environmental Impact · {selectedStation.city}
-            </strong>
-          </div>
-
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            {[
-              { id: "normal",  label: "Live Baseline",           emoji: "📡" },
-              { id: "rain",    label: "Heavy Rain Washout",      emoji: "🌧️" },
-              { id: "traffic", label: "Rush-Hour Congestion",    emoji: "🚗" },
-              { id: "wind",    label: "High Wind Dispersion",    emoji: "🌬️" },
-              { id: "biomass", label: "Smoke Inversion Plume",   emoji: "🌾" },
-            ].map(sc => (
+        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "nowrap" }}>
+          {QUICK_CITIES.map(city => {
+            const found = stations.find(s => s.city.toLowerCase() === city.toLowerCase());
+            const isSelected = selectedStation.city.toLowerCase() === city.toLowerCase();
+            return (
               <button
-                key={sc.id}
-                onClick={() => setSimScenario(sc.id as any)}
+                key={city}
+                onClick={() => {
+                  if (found) setSelectedStation(found);
+                }}
                 style={{
-                  padding: "7px 13px",
-                  borderRadius: 10,
+                  padding: "5px 12px",
+                  borderRadius: 8,
                   fontSize: 12,
                   fontWeight: 700,
-                  border: simScenario === sc.id ? "2px solid #0284c7" : "1px solid #e2e8f0",
-                  background: simScenario === sc.id ? "#f0f9ff" : "#ffffff",
-                  color: simScenario === sc.id ? "#0284c7" : "#475569",
+                  border: isSelected ? "1px solid var(--mint)" : "1px solid var(--border)",
+                  background: isSelected ? "var(--bg-glass-md)" : "rgba(0,0,0,0.25)",
+                  color: isSelected ? "var(--mint)" : "var(--text-secondary)",
                   cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 5,
+                  whiteSpace: "nowrap",
                   transition: "all 0.15s ease",
-                  boxShadow: simScenario === sc.id ? "0 2px 10px rgba(2,132,199,0.2)" : "none"
+                  boxShadow: isSelected ? "var(--glow-mint)" : "none"
                 }}
               >
-                {sc.emoji} {sc.label}
+                📍 {city}
               </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ── Master Row: Gauge + Spectrum + Microclimate ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "340px 1fr 320px", gap: 22, marginBottom: 26 }}>
-
-        {/* Card 1: AQI Radial Gauge */}
-        <div className="light-card" style={{ padding: "28px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", borderTop: `5px solid ${meta.color}`, background: "linear-gradient(180deg, #ffffff 0%, #fafbfc 100%)" }}>
-          <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.12em", color: "#64748b" }}>
-            National AQI Index
-          </span>
-          <h3 style={{ fontFamily: "'Outfit', sans-serif", fontSize: 22, fontWeight: 900, color: "#0f172a", marginTop: 4 }}>
-            {selectedStation.city}
-          </h3>
-          <span style={{ fontSize: 11, color: "#94a3b8", marginBottom: 14, fontWeight: 600 }}>
-            {selectedStation.station}
-          </span>
-
-          {/* SVG Radial Gauge */}
-          <div style={{ position: "relative", width: 200, height: 200, margin: "4px 0 12px" }}>
-            <svg width="200" height="200" viewBox="0 0 100 100">
-              <defs>
-                <radialGradient id="gaugeGlow" cx="50%" cy="50%">
-                  <stop offset="0%" stopColor={meta.color} stopOpacity="0.08" />
-                  <stop offset="100%" stopColor={meta.color} stopOpacity="0" />
-                </radialGradient>
-              </defs>
-              <circle cx="50" cy="50" r="45" fill="url(#gaugeGlow)" />
-              {/* Background track */}
-              <circle
-                cx="50" cy="50" r="40"
-                fill="none"
-                stroke="#e2e8f0"
-                strokeWidth="9"
-                strokeDasharray="251.2"
-                strokeDashoffset="62.8"
-                transform="rotate(135 50 50)"
-                strokeLinecap="round"
-              />
-              {/* Value arc */}
-              <circle
-                cx="50" cy="50" r="40"
-                fill="none"
-                stroke={meta.color}
-                strokeWidth="9"
-                strokeDasharray="251.2"
-                strokeDashoffset={Math.max(62.8, 251.2 - ((Math.min(effectiveAQI, 500) / 500) * 188.4))}
-                transform="rotate(135 50 50)"
-                strokeLinecap="round"
-                style={{ transition: "stroke-dashoffset 0.9s cubic-bezier(0.16,1,0.3,1)", filter: `drop-shadow(0 0 6px ${meta.color}80)` }}
-              />
-              {/* Tick marks */}
-              {[0, 25, 50, 75, 100].map((pct) => {
-                const angle = (135 + pct * 2.7) * (Math.PI / 180);
-                const x1 = 50 + 44 * Math.cos(angle);
-                const y1 = 50 + 44 * Math.sin(angle);
-                const x2 = 50 + 38 * Math.cos(angle);
-                const y2 = 50 + 38 * Math.sin(angle);
-                return <line key={pct} x1={x1} y1={y1} x2={x2} y2={y2} stroke="#e2e8f0" strokeWidth="1.5" strokeLinecap="round" />;
-              })}
-            </svg>
-            <div style={{
-              position: "absolute", inset: 0,
-              display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center"
-            }}>
-              <span className="display-num" style={{ fontSize: 46, color: meta.color }}>
-                {effectiveAQI}
-              </span>
-              <span style={{ fontSize: 10, fontWeight: 800, color: "#94a3b8", letterSpacing: "0.08em", marginTop: 2 }}>
-                AQI POINTS
-              </span>
-            </div>
-          </div>
-
-          <span style={{
-            padding: "6px 18px",
-            borderRadius: 999,
-            background: meta.bg,
-            color: meta.color,
-            border: `1px solid ${meta.border}`,
-            fontSize: 13,
-            fontWeight: 800,
-            letterSpacing: "0.02em",
-            marginBottom: 12,
-          }}>
-            ● {meta.label}
-          </span>
-
-          <p style={{ fontSize: 11.5, color: "#64748b", lineHeight: 1.5, fontWeight: 500 }}>
-            {simScenario === "normal"
-              ? "Reflecting current statutory telemetry and meteorological data."
-              : `Simulated under [${simScenario.toUpperCase()}] atmospheric modifier.`}
-          </p>
-        </div>
-
-        {/* Card 2: Multi-Pollutant Spectrum */}
-        <div className="light-card" style={{ padding: "26px" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
-            <div>
-              <h3 style={{ fontSize: 17, fontWeight: 800, color: "#0f172a" }}>
-                Multi-Pollutant Chemical Spectrum
-              </h3>
-              <p style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
-                Continuous ambient concentration vs. national exposure limits.
-              </p>
-            </div>
-            <span style={{
-              fontSize: 11,
-              fontWeight: 800,
-              color: "#0284c7",
-              background: "linear-gradient(135deg, #eff6ff, #dbeafe)",
-              padding: "5px 10px",
-              borderRadius: 8,
-              border: "1px solid #bfdbfe",
-            }}>
-              6 Parameters
-            </span>
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            {pollutantsData.map(pol => {
-              const pct = Math.min(100, Math.round((pol.val / pol.limit) * 100));
-              const isBreach = pol.val > pol.limit;
-              return (
-                <div key={pol.name} style={{
-                  background: isBreach ? "#fff5f5" : "#f8fafc",
-                  border: `1px solid ${isBreach ? "#fecaca" : "#e2e8f0"}`,
-                  borderRadius: 14,
-                  padding: "14px 16px",
-                  position: "relative",
-                  overflow: "hidden"
-                }}>
-                  <div style={{ position: "absolute", top: 0, left: 0, right: 0, height: 3, background: pol.color, borderRadius: "14px 14px 0 0" }} />
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                    <div>
-                      <strong style={{ fontSize: 15, fontWeight: 900, color: "#0f172a" }}>{pol.name}</strong>
-                      <span style={{ fontSize: 10.5, color: "#94a3b8", marginLeft: 6 }}>
-                        Limit: {pol.limit} {pol.unit}
-                      </span>
-                    </div>
-                    <span style={{
-                      fontSize: 14,
-                      fontWeight: 900,
-                      color: isBreach ? "#dc2626" : "#0f172a"
-                    }}>
-                      {pol.val.toFixed(1)}
-                      <span style={{ fontSize: 10, color: "#94a3b8", fontWeight: 600 }}> {pol.unit}</span>
-                    </span>
-                  </div>
-
-                  <div className="progress-track">
-                    <div
-                      className="progress-fill"
-                      style={{
-                        width: `${pct}%`,
-                        background: pct > 85 ? "linear-gradient(90deg, #dc2626, #ef4444)" :
-                                    pct > 60 ? "linear-gradient(90deg, #d97706, #f59e0b)" :
-                                              "linear-gradient(90deg, #059669, #10b981)"
-                      }}
-                    />
-                  </div>
-
-                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, fontSize: 10, color: "#94a3b8" }}>
-                    <span>{pct}% of NAQI ceiling</span>
-                    <strong style={{ color: isBreach ? "#dc2626" : "#059669" }}>
-                      {isBreach ? "⚠ Breached" : "✓ Safe"}
-                    </strong>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Card 3: Atmospheric Microclimate */}
-        <div className="light-card" style={{ padding: "26px", display: "flex", flexDirection: "column" }}>
-          <h3 style={{ fontSize: 17, fontWeight: 800, color: "#0f172a", marginBottom: 4 }}>
-            Atmospheric Dynamics
-          </h3>
-          <p style={{ fontSize: 11.5, color: "#64748b", marginBottom: 18, fontWeight: 500 }}>
-            Meteorological drivers governing particulate dispersion.
-          </p>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 10, flex: 1 }}>
-            {[
-              { label: "Temperature",      val: `${selectedStation.temperature ?? 30.5} °C`,  Icon: Thermometer, color: "#ea580c", bg: "#fff7ed" },
-              { label: "Humidity",         val: `${selectedStation.humidity ?? 58} %`,         Icon: Droplets,    color: "#0284c7", bg: "#f0f9ff" },
-              { label: "Wind Speed",       val: `${selectedStation.wind_speed ?? 11.2} km/h`,  Icon: Wind,        color: "#059669", bg: "#ecfdf5" },
-              { label: "Boundary Layer",   val: "1,240 m",                                     Icon: Compass,     color: "#7c3aed", bg: "#faf5ff" },
-              { label: "Visibility",       val: `${selectedStation.visibility ?? 7.8} km`,     Icon: Eye,         color: "#d97706", bg: "#fffbeb" },
-            ].map(m => (
-              <div key={m.label} style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "10px 14px",
-                background: "#f8fafc",
-                borderRadius: 12,
-                border: "1px solid #f1f5f9"
-              }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{
-                    width: 32, height: 32,
-                    borderRadius: 9,
-                    background: m.bg,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    color: m.color,
-                    flexShrink: 0,
-                  }}>
-                    <m.Icon size={15} />
-                  </div>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: "#334155" }}>{m.label}</span>
-                </div>
-                <strong style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>{m.val}</strong>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: 12, padding: "12px 14px", marginTop: 16 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#065f46", display: "block" }}>
-              ✓ Dispersion Conditions
-            </span>
-            <p style={{ fontSize: 10.5, color: "#047857", marginTop: 3 }}>
-              Moderate winds facilitate gradual particulate clearance.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* ── AI Forecast Timeline ── */}
-      <div className="light-card" style={{ padding: "26px", marginBottom: 26 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, flexWrap: "wrap", gap: 12 }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <TrendingUp size={18} color="#0284c7" />
-              <h3 style={{ fontSize: 17, fontWeight: 800, color: "#0f172a" }}>
-                LSTM AI Predictive Horizons (PM2.5)
-              </h3>
-            </div>
-            <p style={{ fontSize: 12, color: "#64748b" }}>
-              Long Short-Term Memory multi-step forecasting with conformal uncertainty bounds.
-            </p>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 11.5, color: "#64748b", display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#0284c7", display: "inline-block" }} />
-              Predicted PM2.5
-            </span>
-            <span style={{ fontSize: 11.5, color: "#64748b", display: "flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 10, height: 10, borderRadius: 2, background: "#bae6fd", display: "inline-block" }} />
-              Confidence Band
-            </span>
-          </div>
-        </div>
-
-        {/* Prediction Cards */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12, marginBottom: 22 }}>
-          {forecastPoints.slice(0, 7).map((pt, idx) => {
-            const ptMeta = getAQIMeta(pt.aqi);
-            return (
-              <div key={pt.time} style={{
-                background: idx === 0 ? "linear-gradient(135deg, #eff6ff, #dbeafe)" : "#f8fafc",
-                border: idx === 0 ? "2px solid #93c5fd" : "1px solid #e2e8f0",
-                borderRadius: 14,
-                padding: "14px 10px",
-                textAlign: "center",
-                position: "relative",
-                overflow: "hidden"
-              }}>
-                {idx === 0 && (
-                  <div style={{
-                    position: "absolute", top: 0, left: 0, right: 0, height: 3,
-                    background: "linear-gradient(90deg, #0284c7, #38bdf8)"
-                  }} />
-                )}
-                <span style={{ fontSize: 10.5, fontWeight: 800, color: idx === 0 ? "#0284c7" : "#64748b", display: "block", marginBottom: 4 }}>
-                  {pt.time}
-                </span>
-                <div className="display-num" style={{ fontSize: 26, color: ptMeta.color, margin: "4px 0" }}>
-                  {pt.aqi}
-                </div>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: "#334155", display: "block" }}>
-                  {pt.pm25} µg/m³
-                </span>
-                <span style={{ fontSize: 9, color: "#94a3b8", display: "block", marginTop: 2 }}>
-                  [{pt.lower}–{pt.upper}]
-                </span>
-              </div>
             );
           })}
         </div>
-
-        {/* Area Chart */}
-        <div style={{ width: "100%", height: 260 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={forecastPoints} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="dashPredGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%"  stopColor="#0284c7" stopOpacity={0.3} />
-                  <stop offset="95%" stopColor="#0284c7" stopOpacity={0.0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-              <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
-              <YAxis stroke="#94a3b8" fontSize={11} tickLine={false} axisLine={false} />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "#ffffff",
-                  border: "1px solid #e2e8f0",
-                  borderRadius: 12,
-                  color: "#0f172a",
-                  boxShadow: "0 8px 24px rgba(15,23,42,0.12)",
-                  fontSize: 12,
-                  fontWeight: 700
-                }}
-              />
-              <Area type="monotone" dataKey="pm25" name="PM2.5 (µg/m³)" stroke="#0284c7" strokeWidth={3} fill="url(#dashPredGrad)" dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
       </div>
 
-      {/* ── Health Matrix ── */}
-      <div className="light-card" style={{ padding: "26px" }}>
-        <div style={{ marginBottom: 20 }}>
-          <h3 style={{ fontSize: 17, fontWeight: 800, color: "#0f172a" }}>
-            Cohort-Specific Health Guidance &amp; Exposure Limits
-          </h3>
-          <p style={{ fontSize: 12.5, color: "#64748b", marginTop: 4 }}>
-            Clinical exposure caps calibrated to {selectedStation.city}'s current air toxicity — AQI {effectiveAQI}.
-          </p>
-        </div>
-
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
-          {[
-            {
-              group: "👶 Children & Infants",
-              status: effectiveAQI <= 100 ? "Safe for Playground" : "Limit Outdoor Recess",
-              desc: "Developing respiratory tract. Limit vigorous physical exertion near highway corridors.",
-              color: effectiveAQI <= 100 ? "#059669" : "#ea580c",
-              bg: effectiveAQI <= 100 ? "#ecfdf5" : "#fff7ed",
-              border: effectiveAQI <= 100 ? "#a7f3d0" : "#fed7aa",
-            },
-            {
-              group: "🏃 Athletes & Runners",
-              status: effectiveAQI <= 80 ? "Optimal Workout Conditions" : "Reschedule Indoors",
-              desc: "Deep lung inhalation reaches 80 L/min during cardio. Run before 07:30 AM.",
-              color: effectiveAQI <= 80 ? "#059669" : "#d97706",
-              bg: effectiveAQI <= 80 ? "#ecfdf5" : "#fffbeb",
-              border: effectiveAQI <= 80 ? "#a7f3d0" : "#fde68a",
-            },
-            {
-              group: "🧓 Senior Citizens",
-              status: effectiveAQI <= 100 ? "Comfortable Walk" : "Stay Indoors",
-              desc: "Elevated risk of particulate-induced hypertension and cardiovascular irritation.",
-              color: effectiveAQI <= 100 ? "#059669" : "#dc2626",
-              bg: effectiveAQI <= 100 ? "#ecfdf5" : "#fff1f2",
-              border: effectiveAQI <= 100 ? "#a7f3d0" : "#fecdd3",
-            },
-            {
-              group: "🫁 Asthmatics & COPD",
-              status: effectiveAQI <= 60 ? "Normal Precautions" : "High Alert — N95 Ready",
-              desc: "Microscopic PM2.5 triggers bronchospasm. Wear certified N95 when outdoors.",
-              color: effectiveAQI <= 60 ? "#059669" : "#dc2626",
-              bg: effectiveAQI <= 60 ? "#ecfdf5" : "#fff1f2",
-              border: effectiveAQI <= 60 ? "#a7f3d0" : "#fecdd3",
-            }
-          ].map(coh => (
-            <div key={coh.group} style={{
-              background: coh.bg,
-              border: `1px solid ${coh.border}`,
-              borderTop: `4px solid ${coh.color}`,
-              borderRadius: 16,
-              padding: "18px",
-              transition: "all 0.2s ease"
-            }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <strong style={{ fontSize: 13.5, color: "#0f172a" }}>{coh.group}</strong>
-                <span style={{
-                  fontSize: 10.5,
-                  fontWeight: 800,
-                  color: coh.color,
-                  background: "#ffffff",
-                  padding: "3px 8px",
-                  borderRadius: 6,
-                }}>
-                  {coh.status}
-                </span>
-              </div>
-              <p style={{ fontSize: 11.5, color: "#475569", lineHeight: 1.5 }}>{coh.desc}</p>
+      {/* ── Movable Layout Customization Banner ── */}
+      {isCustomizeMode && (
+        <div
+          style={{
+            background: "var(--bg-glass-md)",
+            border: "1px dashed var(--mint)",
+            borderRadius: 14,
+            padding: "14px 20px",
+            marginBottom: 24,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 12,
+            animation: "fadeUpIn 0.25s ease",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <GripVertical size={18} style={{ color: "var(--mint)" }} />
+            <div>
+              <strong style={{ fontSize: 13.5, color: "var(--text-primary)" }}>
+                Layout Organizer Active
+              </strong>
+              <p style={{ fontSize: 12, color: "var(--text-secondary)", marginTop: 2 }}>
+                Drag widgets to reorder them, use width toggles (1x, 2x, Full) to resize cards, or hide unwanted widgets.
+              </p>
             </div>
-          ))}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            {widgets.some(w => !w.visible) && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Hidden:</span>
+                {widgets.filter(w => !w.visible).map(w => (
+                  <button
+                    key={w.id}
+                    onClick={() => toggleWidgetVisibility(w.id)}
+                    className="btn-ghost"
+                    style={{ fontSize: 11, padding: "3px 8px", background: "var(--bg-glass-md)", borderRadius: 6 }}
+                  >
+                    <PlusCircle size={11} color="var(--mint)" /> {w.title}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <button
+              onClick={resetLayout}
+              className="btn-ghost"
+              style={{ fontSize: 12, padding: "6px 12px", border: "1px solid var(--border)" }}
+            >
+              <RotateCcw size={12} /> Reset to Default
+            </button>
+            <button
+              onClick={() => setIsCustomizeMode(false)}
+              className="btn-primary"
+              style={{ padding: "6px 14px", fontSize: 12 }}
+            >
+              Save &amp; Finish
+            </button>
+          </div>
         </div>
+      )}
+
+      {/* ── Movable Grid ── */}
+      <div className={`movable-grid ${isCustomizeMode ? "customize-mode-active" : ""}`}>
+        {widgets.filter(w => w.visible).map((widget, index) => {
+          const isDragging = draggedWidgetId === widget.id;
+          const isDragTarget = dragOverWidgetId === widget.id;
+
+          return (
+            <div
+              key={widget.id}
+              className={`movable-item ${widget.span} glass-card ${isDragging ? "is-dragging" : ""} ${isDragTarget ? "drag-target" : ""}`}
+              draggable={isCustomizeMode}
+              onDragStart={(e) => handleDragStart(e, widget.id)}
+              onDragOver={(e) => handleDragOver(e, widget.id)}
+              onDrop={(e) => handleDrop(e, widget.id)}
+              onDragEnd={handleDragEnd}
+            >
+              {/* Card Header Toolbar */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "8px 14px",
+                  background: "var(--bg-card)",
+                  borderBottom: "1px solid var(--border)",
+                  fontSize: 11,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {isCustomizeMode ? (
+                    <span className="widget-handle" title="Drag to reorder">
+                      <GripVertical size={13} /> Drag
+                    </span>
+                  ) : (
+                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--mint)" }} />
+                  )}
+                  <strong style={{ color: "var(--text-secondary)", fontSize: 11 }}>
+                    {widget.title}
+                  </strong>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {isCustomizeMode ? (
+                    <>
+                      <button
+                        onClick={() => moveWidget(widget.id, "up")}
+                        disabled={index === 0}
+                        className="btn-ghost"
+                        style={{ padding: "2px 6px" }}
+                        title="Move Up"
+                      >
+                        <ChevronUp size={13} />
+                      </button>
+                      <button
+                        onClick={() => moveWidget(widget.id, "down")}
+                        disabled={index === widgets.filter(w => w.visible).length - 1}
+                        className="btn-ghost"
+                        style={{ padding: "2px 6px" }}
+                        title="Move Down"
+                      >
+                        <ChevronDown size={13} />
+                      </button>
+
+                      {/* Width toggles */}
+                      <button
+                        onClick={() => changeWidgetSpan(widget.id, "span-4")}
+                        style={{
+                          padding: "2px 6px",
+                          fontSize: 10,
+                          borderRadius: 4,
+                          border: widget.span === "span-4" ? "1px solid var(--mint)" : "1px solid var(--border)",
+                          background: widget.span === "span-4" ? "var(--bg-glass-md)" : "transparent",
+                          color: widget.span === "span-4" ? "var(--mint)" : "var(--text-muted)",
+                          cursor: "pointer",
+                        }}
+                        title="Compact Width (1/3rd)"
+                      >
+                        1x
+                      </button>
+                      <button
+                        onClick={() => changeWidgetSpan(widget.id, "span-8")}
+                        style={{
+                          padding: "2px 6px",
+                          fontSize: 10,
+                          borderRadius: 4,
+                          border: widget.span === "span-8" ? "1px solid var(--mint)" : "1px solid var(--border)",
+                          background: widget.span === "span-8" ? "var(--bg-glass-md)" : "transparent",
+                          color: widget.span === "span-8" ? "var(--mint)" : "var(--text-muted)",
+                          cursor: "pointer",
+                        }}
+                        title="Wide Width (2/3rds)"
+                      >
+                        2x
+                      </button>
+                      <button
+                        onClick={() => changeWidgetSpan(widget.id, "span-12")}
+                        style={{
+                          padding: "2px 6px",
+                          fontSize: 10,
+                          borderRadius: 4,
+                          border: widget.span === "span-12" ? "1px solid var(--mint)" : "1px solid var(--border)",
+                          background: widget.span === "span-12" ? "var(--bg-glass-md)" : "transparent",
+                          color: widget.span === "span-12" ? "var(--mint)" : "var(--text-muted)",
+                          cursor: "pointer",
+                        }}
+                        title="Full Width (100%)"
+                      >
+                        Full
+                      </button>
+
+                      {/* Hide Button */}
+                      <button
+                        onClick={() => toggleWidgetVisibility(widget.id)}
+                        className="btn-ghost"
+                        style={{ padding: "2px 6px" }}
+                        title="Hide Widget"
+                      >
+                        <EyeOff size={13} />
+                      </button>
+                    </>
+                  ) : (
+                    /* In normal mode: Fullscreen expand button */
+                    <button
+                      onClick={() => setFullscreenWidget(widget.id)}
+                      className="btn-ghost"
+                      style={{ padding: "3px 6px", opacity: 0.7 }}
+                      title="Inspect Widget in Fullscreen"
+                    >
+                      <Maximize2 size={12} color="var(--text-muted)" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Render Actual Widget Content */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                {renderWidgetContent(widget.id)}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
+      {/* ── Fullscreen Modal Overlay ── */}
+      {fullscreenWidget && (
+        <div className="widget-fullscreen-modal" onClick={() => setFullscreenWidget(null)}>
+          <div
+            className="widget-fullscreen-inner"
+            onClick={e => e.stopPropagation()}
+            style={{ position: "relative" }}
+          >
+            <button
+              onClick={() => setFullscreenWidget(null)}
+              className="btn-ghost"
+              style={{
+                position: "absolute",
+                top: 20,
+                right: 20,
+                padding: "8px",
+                borderRadius: "50%",
+                background: "rgba(0,0,0,0.4)",
+                border: "1px solid var(--border)",
+                cursor: "pointer",
+                zIndex: 10,
+              }}
+              title="Close Fullscreen View"
+            >
+              <X size={18} color="var(--text-primary)" />
+            </button>
+
+            {renderWidgetContent(fullscreenWidget, true)}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
