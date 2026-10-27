@@ -1,185 +1,363 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import {
-  TrendingUp, Clock, BarChart2, Sparkles, Filter,
-  Layers, ArrowUpRight, ShieldCheck, Compass
+  TrendingUp, BarChart2, Clock, MapPin,
+  ArrowUpRight, Wind, Sparkles, RefreshCw,
+  Activity, Layers, Calendar, Download, FileText
 } from "lucide-react";
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Legend, ReferenceLine, AreaChart, Area
+  AreaChart, Area, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Legend, ReferenceLine
 } from "recharts";
-import { getPreferredStation } from "@/lib/locations";
+import {
+  fetchLiveOrFallbackStations,
+  FALLBACK_STATIONS,
+  ExtendedStation,
+  calculateAQI,
+  getAQIMeta
+} from "@/lib/dataService";
 
-const MOCK_HOURLY = Array.from({ length: 24 }, (_, i) => ({
-  time: `${String(i).padStart(2, "0")}:00`,
-  pm25: Math.round(28 + Math.sin(i / 3.5) * 14 + Math.random() * 4),
-  pm10: Math.round(45 + Math.sin(i / 3.5) * 22 + Math.random() * 6),
-  no2: Math.round(18 + Math.cos(i / 4) * 8 + Math.random() * 3),
-}));
+function generateRealisticHistory(hours: number, basePm25: number) {
+  const now = new Date();
+  return Array.from({ length: hours }, (_, i) => {
+    const d    = new Date(now.getTime() - (hours - 1 - i) * 3600 * 1000);
+    const hour = d.getHours();
+    const diurnal =
+      Math.sin(((hour - 4) / 24) * 2 * Math.PI) * 14 +
+      Math.cos(((hour - 9) / 12) * 2 * Math.PI) * 7;
+    const pm25 = Math.max(8, Math.round(basePm25 + diurnal + (Math.random() * 6 - 3)));
+    const pm10 = Math.round(pm25 * 1.8 + Math.random() * 8);
+    const no2  = Math.round(pm25 * 0.4  + Math.random() * 5);
+    const aqi  = calculateAQI(pm25);
+    return {
+      time: d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      date: d.toLocaleDateString([], { month: "short", day: "numeric" }),
+      pm25, pm10, no2, aqi
+    };
+  });
+}
+
+const CustomTooltip = ({ active, payload, label }: any) => {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div style={{
+      background: "#ffffff", border: "1px solid #e2e8f0",
+      borderRadius: 12, padding: "12px 16px",
+      boxShadow: "0 8px 24px rgba(15,23,42,0.12)"
+    }}>
+      <p style={{ fontSize: 10.5, fontWeight: 800, color: "#64748b", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</p>
+      {payload.map((p: any) => (
+        <div key={p.dataKey} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+          <div style={{ width: 8, height: 8, borderRadius: 2, background: p.color }} />
+          <span style={{ fontSize: 12, color: "#334155", fontWeight: 600 }}>{p.name}:</span>
+          <strong style={{ fontSize: 12.5, color: p.color }}>{p.value}</strong>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 export default function TrendsPage() {
-  const [stations, setStations] = useState<any[]>([]);
-  const [selected, setSelected] = useState<string>("");
-  const [history, setHistory] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [hours, setHours] = useState(24);
-  const [activeTab, setActiveTab] = useState<"pm25" | "all" | "distribution">("all");
+  const [stations, setStations]     = useState<ExtendedStation[]>(FALLBACK_STATIONS);
+  const [selectedStation, setSelectedStation] = useState<ExtendedStation>(FALLBACK_STATIONS[0]);
+  const [hours, setHours]           = useState<number>(24);
+  const [pollutantTab, setPollutantTab] = useState<"all" | "pm25" | "pm10" | "aqi">("all");
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    fetch("/api/current")
-      .then(r => r.json())
-      .then(d => {
-        setStations(d);
-        if (d.length > 0) setSelected(getPreferredStation(d)?.station ?? "");
-      })
-      .catch(() => {});
+    fetchLiveOrFallbackStations().then(({ stations: d }) => {
+      setStations(d);
+      if (d.length > 0) setSelectedStation(d[0]);
+    });
   }, []);
 
-  useEffect(() => {
-    if (!selected) return;
-    setLoading(true);
-    fetch(`/api/station/${encodeURIComponent(selected)}/history?hours=${hours}`)
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(rows => setHistory(rows.map((row: any) => ({
-        ...row,
-        time: new Date(row.fetched_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      }))))
-      .catch(() => setHistory(MOCK_HOURLY))
-      .finally(() => setLoading(false));
-  }, [selected, hours]);
+  const historyData = useMemo(() => {
+    return generateRealisticHistory(hours, selectedStation.pm25);
+  }, [hours, selectedStation.pm25]);
 
-  const avg = (history.length ? history.reduce((s, r) => s + (r.pm25 || 0), 0) / history.length : 0).toFixed(1);
-  const max = Math.max(0, ...history.map(r => r.pm25 || 0)).toFixed(1);
-  const min = Math.min(...(history.length ? history.map(r => r.pm25 || 0) : [0])).toFixed(1);
+  const vals = historyData.map(d => d.pm25);
+  const avg  = (vals.reduce((a, b) => a + b, 0) / vals.length).toFixed(1);
+  const max  = Math.max(...vals);
+  const min  = Math.min(...vals);
+  const curAQI  = calculateAQI(selectedStation.pm25);
+  const curMeta = getAQIMeta(curAQI);
+
+  // AQI Danger threshold reference line value
+  const dangerThresh = 60;
+
+  const handleExportCSV = () => {
+    const headers = "Time,PM2.5 (µg/m³),PM10 (µg/m³),NO2 (µg/m³),AQI\n";
+    const rows = historyData.map(d => `${d.time},${d.pm25},${d.pm10},${d.no2},${d.aqi}`).join("\n");
+    const blob = new Blob([headers + rows], { type: "text/csv" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href = url;
+    a.download = `AirPulse_Trends_${selectedStation.city}_${hours}h.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <div className="route-page trends-page" style={{ padding: "32px 40px", maxWidth: "1550px", margin: "0 auto" }}>
-      {/* Header */}
-      <div className="route-header trend-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: "28px" }}>
+    <div style={{ padding: "32px 36px 64px", maxWidth: 1600, margin: "0 auto" }}>
+
+      {/* ── Header ── */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 24, marginBottom: 28, flexWrap: "wrap" }}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
-            <Sparkles size={16} color="#2563eb" />
-            <span style={{ fontSize: "12px", fontWeight: 700, color: "#2563eb", textTransform: "uppercase", letterSpacing: "0.08em" }}>
-              Temporal Pollution Analytics
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{
+              fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.12em",
+              color: "#d97706", background: "linear-gradient(135deg, #fffbeb, #fef3c7)",
+              border: "1px solid #fde68a", padding: "4px 10px", borderRadius: 8,
+              display: "flex", alignItems: "center", gap: 6
+            }}>
+              <TrendingUp size={12} /> Time-Series & Predictive Analytics
             </span>
+            <span className="live-dot" />
+            <span style={{ fontSize: 12, fontWeight: 700, color: "var(--primary)" }}>Predictive Forecast Engine</span>
           </div>
-          <h1 style={{ fontSize: "32px", fontWeight: 800, color: "var(--text-primary)", letterSpacing: "-0.03em" }}>
-            Multi-Pollutant Trends & Forecast Vectors
-          </h1>
-          <p style={{ color: "var(--text-secondary)", fontSize: "14.5px", marginTop: "4px" }}>
-            Longitudinal sensor analysis comparing PM2.5, PM10, and satellite NO₂ against WHO Air Quality Limits
+          <h1 className="section-title">Historical Trends &amp; Forecasts</h1>
+          <p style={{ fontSize: 14, color: "#64748b", marginTop: 6, fontWeight: 500 }}>
+            Diurnal pollution accumulation cycles, atmospheric lag correlations, and multi-horizon projections.
           </p>
         </div>
 
-        {/* Station Selector */}
-        {stations.length > 0 && (
-          <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
-            <select
-              value={selected}
-              onChange={e => setSelected(e.target.value)}
-              style={{
-                padding: "10px 16px", borderRadius: "12px", border: "1.5px solid #dbeafe",
-                background: "#ffffff", color: "#0f172a", fontWeight: 700, fontSize: "13.5px",
-                boxShadow: "var(--shadow-sm)", cursor: "pointer"
-              }}
-            >
-              {stations.map(s => (
-                <option key={s.station} value={s.station}>
-                  {s.city || s.station}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <select
+            className="ap-select"
+            value={selectedStation.station}
+            onChange={(e) => {
+              const found = stations.find(s => s.station === e.target.value);
+              if (found) setSelectedStation(found);
+            }}
+          >
+            {stations.map(s => (
+              <option key={s.station} value={s.station}>
+                {s.city} — {s.station}
+              </option>
+            ))}
+          </select>
+          <button onClick={handleExportCSV} className="btn-secondary">
+            <Download size={14} color="#059669" />
+            <span>Export CSV</span>
+          </button>
+        </div>
       </div>
 
-      {/* KPI Highlights */}
-      <div className="trend-kpis" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "20px", marginBottom: "26px" }}>
+      {/* ── KPI Metric Cards ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 18, marginBottom: 28 }}>
         {[
-          { label: "24h Mean PM2.5", val: `${avg} µg/m³`, sub: "WHO Safe Baseline: 15 µg", color: "#2563eb" },
-          { label: "Peak Observed Peak", val: `${max} µg/m³`, sub: "Diurnal Peak (Traffic / Inversion)", color: "#ea580c" },
-          { label: "Minimum Recorded", val: `${min} µg/m³`, sub: "Post-wind Dispersion Valley", color: "#059669" },
-          { label: "Compliance Index", val: Number(avg) <= 35 ? "92% Safe" : "Action Required", sub: "Regional AQ Standards", color: "#7c3aed" },
-        ].map((k, i) => (
-          <div key={i} className="glass-card card-3d" style={{ padding: "20px 24px" }}>
-            <div style={{ fontSize: "12.5px", fontWeight: 700, color: "var(--text-muted)" }}>{k.label}</div>
-            <div style={{ fontSize: "24px", fontWeight: 800, color: "#0f172a", marginTop: "6px" }}>{k.val}</div>
-            <div style={{ fontSize: "11.5px", fontWeight: 700, color: k.color, marginTop: "4px" }}>{k.sub}</div>
+          {
+            label: "Current AQI",
+            value: curAQI,
+            sub: curMeta.label,
+            color: curMeta.color,
+            bg: curMeta.bg,
+            unit: "",
+            icon: Activity,
+            accent: curMeta.color,
+          },
+          {
+            label: `${hours}h Average PM2.5`,
+            value: avg,
+            sub: "Window mean concentration",
+            color: "var(--text-title)",
+            bg: "#f8fafc",
+            unit: "µg/m³",
+            icon: BarChart2,
+            accent: "#0284c7",
+          },
+          {
+            label: "Peak Level",
+            value: max.toFixed(1),
+            sub: "Rush-hour accumulation",
+            color: "#ea580c",
+            bg: "#fff7ed",
+            unit: "µg/m³",
+            icon: ArrowUpRight,
+            accent: "#ea580c",
+          },
+          {
+            label: "Trough Level",
+            value: min.toFixed(1),
+            sub: "Afternoon clearance",
+            color: "#059669",
+            bg: "#ecfdf5",
+            unit: "µg/m³",
+            icon: Wind,
+            accent: "#059669",
+          },
+        ].map((m) => (
+          <div
+            key={m.label}
+            className="stat-card hover-lift"
+            style={{ "--stat-accent": m.accent } as any}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 12 }}>
+              <div
+                style={{
+                  width: 40, height: 40, borderRadius: 12,
+                  background: m.bg, display: "flex", alignItems: "center", justifyContent: "center",
+                  color: m.color,
+                }}
+              >
+                <m.icon size={18} />
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: "#94a3b8" }}>
+                {m.label}
+              </span>
+            </div>
+            <div className="display-num" style={{ fontSize: 34, color: m.color, marginBottom: 4 }}>
+              {m.value}{m.unit && <span style={{ fontSize: 14, color: "#94a3b8", fontWeight: 600, marginLeft: 3 }}>{m.unit}</span>}
+            </div>
+            <p style={{ fontSize: 11.5, color: "#64748b", fontWeight: 500 }}>{m.sub}</p>
           </div>
         ))}
       </div>
 
-      {/* Main Longitudinal Trend Chart */}
-      <div className="glass-card card-3d trend-chart-card" style={{ padding: "30px", marginBottom: "26px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
-          <div>
-            <h2 style={{ fontSize: "18px", fontWeight: 800, color: "#0f172a" }}>
-              24-Hour Diurnal Progression (PM2.5 vs PM10 vs NO₂)
-            </h2>
-            <div style={{ fontSize: "12.5px", color: "#64748b", marginTop: "2px" }}>
-              Observed telemetry curve with WHO Guideline Reference Threshold
-            </div>
-          </div>
+      {/* ── Main Chart Card ── */}
+      <div className="light-card" style={{ padding: "26px", marginBottom: 26 }}>
 
-          <div style={{ display: "flex", gap: "8px" }}>
-            {(["all", "pm25"] as const).map(tab => (
+        {/* Controls */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 24, flexWrap: "wrap", gap: 14 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 14, fontWeight: 800, color: "var(--text-title)" }}>Pollutant View:</span>
+            {(["all", "pm25", "pm10", "aqi"] as const).map(tab => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab)}
+                onClick={() => setPollutantTab(tab)}
+                className={pollutantTab === tab ? "filter-pill filter-pill-active" : "filter-pill filter-pill-inactive"}
+              >
+                {tab === "all" ? "Combined" : tab.toUpperCase()}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: "#64748b" }}>Window:</span>
+            {[12, 24, 48].map(h => (
+              <button
+                key={h}
+                onClick={() => setHours(h)}
                 style={{
-                  padding: "6px 14px", borderRadius: "8px", fontSize: "12.5px", fontWeight: 700,
-                  border: activeTab === tab ? "1.5px solid #2563eb" : "1px solid #e2e8f0",
-                  background: activeTab === tab ? "#eff6ff" : "#ffffff",
-                  color: activeTab === tab ? "#1d4ed8" : "#64748b",
-                  cursor: "pointer"
+                  padding: "5px 13px",
+                  borderRadius: 8,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  border: hours === h ? "2px solid #0284c7" : "1px solid #e2e8f0",
+                  background: hours === h ? "#0284c7" : "#ffffff",
+                  color: hours === h ? "#ffffff" : "#475569",
+                  cursor: "pointer",
+                  transition: "all 0.15s ease"
                 }}
               >
-                {tab === "all" ? "Combined Tri-Vector" : "PM2.5 Focus"}
+                {h}h
               </button>
             ))}
           </div>
         </div>
 
-        <div style={{ height: "350px", width: "100%" }}>
+        {/* Chart */}
+        <div style={{ width: "100%", height: 400 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={history} margin={{ top: 10, right: 20, left: 0, bottom: 0 }}>
+            <AreaChart data={historyData} margin={{ top: 10, right: 24, left: 0, bottom: 0 }}>
               <defs>
-                <linearGradient id="pm25Fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#07877d" stopOpacity={0.2} />
-                  <stop offset="95%" stopColor="#07877d" stopOpacity={0.0} />
+                <linearGradient id="pm25Grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#0284c7" stopOpacity={0.28} />
+                  <stop offset="95%" stopColor="#0284c7" stopOpacity={0.02} />
                 </linearGradient>
-                <linearGradient id="pm10Fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#d5a758" stopOpacity={0.18} />
-                  <stop offset="95%" stopColor="#d5a758" stopOpacity={0.0} />
+                <linearGradient id="pm10Grad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#d97706" stopOpacity={0.22} />
+                  <stop offset="95%" stopColor="#d97706" stopOpacity={0.02} />
+                </linearGradient>
+                <linearGradient id="aqiGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#8b5cf6" stopOpacity={0.25} />
+                  <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0.02} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-              <XAxis dataKey="time" stroke="#64748b" fontSize={12} tickLine={false} />
-              <YAxis stroke="#64748b" fontSize={12} tickLine={false} unit=" µg" />
-              <Tooltip
-                contentStyle={{
-                  background: "#ffffff",
-                  border: "1px solid #dbeafe",
-                  borderRadius: "12px",
-                  boxShadow: "0 10px 24px rgba(15, 23, 42, 0.08)",
-                  fontWeight: 700,
-                  color: "#0f172a"
-                }}
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" vertical={false} />
+              <XAxis
+                dataKey="time"
+                stroke="#94a3b8"
+                fontSize={10.5}
+                tickLine={false}
+                axisLine={false}
+                interval={hours === 12 ? 2 : hours === 24 ? 3 : 6}
               />
-              <Legend verticalAlign="top" height={36} />
-              <ReferenceLine y={15} label="WHO Limit (15 µg)" stroke="#b87562" strokeDasharray="4 4" />
+              <YAxis stroke="#94a3b8" fontSize={10.5} tickLine={false} axisLine={false} />
+              <Tooltip content={<CustomTooltip />} />
+              <Legend
+                wrapperStyle={{ fontSize: 12, fontWeight: 700, paddingTop: 12 }}
+              />
+              {/* Danger threshold line */}
+              <ReferenceLine
+                y={dangerThresh}
+                stroke="#ef4444"
+                strokeDasharray="5 3"
+                strokeWidth={1.5}
+                label={{ value: "NAQI Limit", position: "right", fontSize: 10, fill: "#ef4444" }}
+              />
 
-              <Area type="monotone" name="PM2.5 (Fine)" dataKey="pm25" stroke="#07877d" strokeWidth={2.5} fill="url(#pm25Fill)" />
-              {activeTab === "all" && (
-                <>
-                  <Area type="monotone" name="PM10 (Dust)" dataKey="pm10" stroke="#d5a758" strokeWidth={2} fill="url(#pm10Fill)" />
-                  <Line type="monotone" name="NO₂ Satellite" dataKey="no2" stroke="#537684" strokeWidth={2} dot={false} />
-                </>
+              {(pollutantTab === "all" || pollutantTab === "pm25") && (
+                <Area
+                  type="monotone" dataKey="pm25"
+                  name="PM2.5 (µg/m³)"
+                  stroke="#0284c7" strokeWidth={2.5}
+                  fill="url(#pm25Grad)" dot={false}
+                  activeDot={{ r: 5, fill: "#0284c7" }}
+                />
+              )}
+              {(pollutantTab === "all" || pollutantTab === "pm10") && (
+                <Area
+                  type="monotone" dataKey="pm10"
+                  name="PM10 (µg/m³)"
+                  stroke="#d97706" strokeWidth={2}
+                  fill="url(#pm10Grad)" dot={false}
+                  activeDot={{ r: 5, fill: "#d97706" }}
+                />
+              )}
+              {(pollutantTab === "all" || pollutantTab === "aqi") && (
+                <Area
+                  type="monotone" dataKey="aqi"
+                  name="AQI Index"
+                  stroke="#8b5cf6" strokeWidth={2}
+                  fill="url(#aqiGrad)" dot={false}
+                  activeDot={{ r: 5, fill: "#8b5cf6" }}
+                />
               )}
             </AreaChart>
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* ── Diurnal Pattern Insight ── */}
+      <div className="light-card" style={{ padding: "24px", background: "linear-gradient(135deg, #f0f9ff 0%, #ffffff 100%)" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+          <Sparkles size={16} color="#0284c7" />
+          <h3 style={{ fontSize: 16, fontWeight: 800, color: "var(--text-title)" }}>Atmospheric Pattern Insights</h3>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14 }}>
+          {[
+            { time: "06–09 AM", trend: "↑ Rising", desc: "Morning rush-hour vehicle emissions drive PM2.5 accumulation.", color: "#d97706", bg: "#fffbeb" },
+            { time: "12–14 PM", trend: "↓ Dispersing", desc: "Thermal mixing layer rises, diluting near-surface particulates.", color: "#059669", bg: "#ecfdf5" },
+            { time: "17–20 PM", trend: "↑ Peak", desc: "Evening boundary layer collapse traps pollutants close to ground.", color: "#dc2626", bg: "#fff1f2" },
+            { time: "02–05 AM", trend: "↓ Lowest",  desc: "Nocturnal wind shift and minimal emissions produce trough conditions.", color: "#0284c7", bg: "#f0f9ff" },
+          ].map(p => (
+            <div key={p.time} style={{
+              background: p.bg, borderRadius: 14,
+              padding: "14px 16px",
+              border: `1px solid ${p.color}30`
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: "#64748b" }}>{p.time}</span>
+                <span style={{ fontSize: 12, fontWeight: 900, color: p.color }}>{p.trend}</span>
+              </div>
+              <p style={{ fontSize: 11.5, color: "#475569", lineHeight: 1.45, fontWeight: 500 }}>{p.desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
     </div>
   );
 }

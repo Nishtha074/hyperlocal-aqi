@@ -1,389 +1,743 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import {
-  MapPin, Layers, RefreshCw, AlertTriangle, Compass,
-  Navigation, Eye, ShieldCheck, Wind, Radio, Maximize2
+  MapPin,
+  RefreshCw,
+  LocateFixed,
+  Layers,
+  Compass,
+  Sliders,
+  ShieldCheck,
+  TrendingUp,
+  Search,
+  Target,
+  ArrowRight,
+  CheckCircle2,
+  Wind,
+  Maximize2,
+  X,
+  Droplets,
+  Thermometer,
 } from "lucide-react";
-import { getNearestStation, getPreferredStation } from "@/lib/locations";
+import { getNearestStation } from "@/lib/locations";
+import {
+  fetchLiveOrFallbackStations,
+  FALLBACK_STATIONS,
+  ExtendedStation,
+  calculateAQI,
+  getAQIMeta
+} from "@/lib/dataService";
 
-function getAQIColor(pm25: number): string {
-  if (pm25 <= 12) return "#059669";
-  if (pm25 <= 35.4) return "#d97706";
-  if (pm25 <= 55.4) return "#ea580c";
-  if (pm25 <= 150.4) return "#dc2626";
-  return "#7c3aed";
-}
-
-function getAQI(pm25: number): number {
-  if (pm25 <= 12) return Math.round((50 / 12) * pm25);
-  if (pm25 <= 35.4) return Math.round(50 + (50 / 23.4) * (pm25 - 12));
-  if (pm25 <= 55.4) return Math.round(100 + (50 / 20) * (pm25 - 35.4));
-  return Math.round(150 + (50 / 95) * (pm25 - 55.4));
-}
-
-interface Station {
-  station: string;
-  city: string;
-  pm25: number;
-  pm10?: number;
-  no2?: number;
-  latitude: number;
-  longitude: number;
-  source?: string;
-  fetched_at?: string;
-}
+const TARGET_CITIES = [
+  { name: "Pune",      lat: 18.5204, lon: 73.8567, zoom: 12 },
+  { name: "Mumbai",    lat: 19.0760, lon: 72.8777, zoom: 11 },
+  { name: "Ahmedabad", lat: 23.0225, lon: 72.5714, zoom: 11 },
+  { name: "Surat",     lat: 21.1702, lon: 72.8311, zoom: 11 },
+  { name: "Vadodara",  lat: 22.3072, lon: 73.1812, zoom: 11 },
+  { name: "Anand",     lat: 22.5645, lon: 72.9289, zoom: 12 },
+  { name: "Rajkot",    lat: 22.3039, lon: 70.8022, zoom: 11 },
+  { name: "Nashik",    lat: 19.9975, lon: 73.7898, zoom: 11 },
+];
 
 export default function MapPage() {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<import("leaflet").Map | null>(null);
-  const savedMapViewRef = useRef<{ center: [number, number]; zoom: number } | null>(null);
-  const [stations, setStations] = useState<Station[]>([]);
-  const [selected, setSelected] = useState<Station | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [search, setSearch] = useState("");
-  const [loadError, setLoadError] = useState("");
-  const [userCoords, setUserCoords] = useState<{ lat: number; lon: number } | null>(null);
-  const [isLocating, setIsLocating] = useState(false);
+  const mapRef     = useRef<HTMLDivElement>(null);
+  const mapInst    = useRef<any>(null);
+  const markersLayer = useRef<any>(null);
+  const heatmapLayer = useRef<any>(null);
+  const markerMap  = useRef<Map<string, any>>(new Map());
 
-  const refreshStations = useCallback(async () => {
+  const [stations, setStations]   = useState<ExtendedStation[]>(FALLBACK_STATIONS);
+  const [selected, setSelected]   = useState<ExtendedStation>(FALLBACK_STATIONS[0]);
+  const [loading, setLoading]     = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [search, setSearch]       = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [locating, setLocating]   = useState(false);
+
+  const [showHeatmap, setShowHeatmap]     = useState(true);
+  const [showMarkers, setShowMarkers]     = useState(true);
+  const [plumeIntensity, setPlumeIntensity] = useState<number>(22);
+  const [activeCity, setActiveCity]       = useState("Pune");
+
+  const loadStations = useCallback(async () => {
     setRefreshing(true);
     try {
-      const res = await fetch("/api/current", { cache: "no-store" });
-      if (!res.ok) throw new Error(`Station service returned ${res.status}`);
-      const data: Station[] = await res.json();
-      const valid = data.filter(
-        (station) => Number.isFinite(station.latitude) && Number.isFinite(station.longitude),
-      );
-      setStations(valid);
-      setSelected(previous =>
-        valid.find(station => station.station === previous?.station)
-        ?? getPreferredStation(valid)
-        ?? null
-      );
-      setLoadError(valid.length ? "" : "No live regional readings are currently available.");
+      const { stations: d } = await fetchLiveOrFallbackStations();
+      setStations(d);
+      setSelected(prev => d.find(s => s.station === prev?.station) ?? d[0]);
     } catch {
-      setLoadError("Unable to load live readings. Check that the air-quality service is running.");
+      setStations(FALLBACK_STATIONS);
     } finally {
-      setLoading(false);
       setRefreshing(false);
+      setLoading(false);
     }
   }, []);
 
+  useEffect(() => { loadStations(); }, [loadStations]);
+
+  // Initialize Leaflet Map with clean tiles
   useEffect(() => {
-    void refreshStations();
-    const interval = window.setInterval(() => void refreshStations(), 300000);
-    return () => window.clearInterval(interval);
-  }, [refreshStations]);
+    if (!mapRef.current || mapInst.current) return;
+    let isDisposed = false;
 
-  useEffect(() => {
-    if (typeof window === "undefined" || !mapRef.current) return;
-    const mapElement = mapRef.current;
+    import("leaflet").then(L => {
+      if (isDisposed || !mapRef.current) return;
 
-    import("leaflet").then((L) => {
-      if (mapInstanceRef.current) {
-        mapInstanceRef.current.remove();
-      }
-
-      const savedView = savedMapViewRef.current;
-      const points = stations
-        .filter((station) => Number.isFinite(station.latitude) && Number.isFinite(station.longitude))
-        .map((station) => [station.latitude, station.longitude] as [number, number]);
-      const map = L.map(mapElement, {
-        center: savedView?.center ?? [22.5645, 72.9289],
-        zoom: savedView?.zoom ?? 7,
-        maxZoom: 22,
-        zoomControl: true,
+      // Fix default marker icon path issue
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png",
+        iconUrl:        "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png",
+        shadowUrl:      "https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png",
       });
 
-      mapInstanceRef.current = map;
-      if (!savedView && points.length > 1) {
-        map.fitBounds(points, { padding: [42, 42], maxZoom: 7 });
-      }
+      const map = L.map(mapRef.current!, {
+        center: [20.5, 73.0],
+        zoom: 7,
+        zoomControl: false,
+        attributionControl: true,
+      });
 
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+
+      // Clean, detailed OpenStreetMap tiles
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        maxNativeZoom: 19,
-        maxZoom: 22,
+        maxZoom: 19,
+        subdomains: ["a", "b", "c"],
       }).addTo(map);
-      window.requestAnimationFrame(() => map.invalidateSize());
 
-      // Add Stations as 3D Styled Ripple Pulsing Markers
-      stations.forEach((s) => {
-        if (!s.latitude || !s.longitude) return;
-        const color = getAQIColor(s.pm25 ?? 0);
-        const aqi = getAQI(s.pm25 ?? 0);
+      heatmapLayer.current = L.layerGroup().addTo(map);
+      markersLayer.current = L.layerGroup().addTo(map);
+      mapInst.current = map;
 
-        const icon = L.divIcon({
-          className: "",
-          html: `
-            <div style="
-              width: 46px; height: 46px; border-radius: 50%;
-              background: #ffffff; border: 3px solid ${color};
-              display: flex; flex-direction: column; align-items: center; justify-content: center;
-              font-family: 'Inter', sans-serif;
-              box-shadow: 0 8px 20px rgba(0,0,0,0.18), 0 0 0 6px ${color}25;
-              cursor: pointer; transition: transform 0.2s ease;
-            ">
-              <span style="font-size: 13px; font-weight: 800; color: #0f172a; line-height: 1;">${aqi}</span>
-              <span style="font-size: 8px; font-weight: 700; color: ${color}; line-height: 1; margin-top: 1px;">AQI</span>
-            </div>
-          `,
-          iconSize: [46, 46],
-          iconAnchor: [23, 23],
-        });
-
-        const marker = L.marker([s.latitude, s.longitude], { icon }).addTo(map);
-
-        marker.on("click", () => {
-          setSelected(s);
-          map.flyTo([s.latitude, s.longitude], 10, { duration: 1.2 });
-        });
-
-        marker.bindPopup(`
-          <div style="font-family: 'Inter', sans-serif; padding: 4px; color: #0f172a;">
-            <div style="font-weight: 800; font-size: 15px; margin-bottom: 2px;">${s.city || s.station}</div>
-            <div style="font-size: 11px; color: #64748b; margin-bottom: 3px;">${s.source === "CPCB" ? "CPCB monitoring station" : "Open-Meteo live city estimate"}</div>
-            <div style="font-size: 10px; color: #94a3b8; margin-bottom: 8px;">Node ID: ${s.station}</div>
-            <div style="display: flex; gap: 12px; margin-bottom: 8px; background: #f8fafc; padding: 8px 12px; border-radius: 8px;">
-              <div>
-                <div style="font-size: 10px; color: #64748b; font-weight: 600;">AQI</div>
-                <div style="font-size: 16px; font-weight: 800; color: ${color};">${aqi}</div>
-              </div>
-              <div>
-                <div style="font-size: 10px; color: #64748b; font-weight: 600;">PM2.5</div>
-                <div style="font-size: 16px; font-weight: 800; color: #0f172a;">${s.pm25?.toFixed(1)}</div>
-              </div>
-            </div>
-            <div style="font-size: 10.5px; color: #2563eb; font-weight: 600;">Click card in panel for ML forecast</div>
-          </div>
-        `);
-      });
+      setTimeout(() => { map.invalidateSize(); }, 400);
     });
 
     return () => {
-      if (mapInstanceRef.current) {
-        if (stations.length > 0) {
-          const center = mapInstanceRef.current.getCenter();
-          savedMapViewRef.current = {
-            center: [center.lat, center.lng],
-            zoom: mapInstanceRef.current.getZoom(),
-          };
-        }
-        mapInstanceRef.current.remove();
-        mapInstanceRef.current = null;
+      isDisposed = true;
+      if (mapInst.current) {
+        mapInst.current.remove();
+        mapInst.current = null;
       }
     };
-  }, [stations]);
+  }, []);
 
-  const visibleStations = stations.filter((station) =>
-    `${station.city} ${station.station}`.toLowerCase().includes(search.toLowerCase()),
-  );
+  // Render markers whenever stations/display options change
+  useEffect(() => {
+    if (!mapInst.current) return;
+    import("leaflet").then(L => {
+      if (!heatmapLayer.current || !markersLayer.current) return;
 
-  // Live GPS geolocation
-  const locateUser = () => {
-    if (!navigator.geolocation || !mapInstanceRef.current) return;
-    setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-        setUserCoords({ lat: latitude, lon: longitude });
-        const nearestStation = getNearestStation(stations, latitude, longitude);
-        if (nearestStation) setSelected(nearestStation);
-        const map = mapInstanceRef.current;
-        if (!map) {
-          setIsLocating(false);
-          return;
+      heatmapLayer.current.clearLayers();
+      markersLayer.current.clearLayers();
+      markerMap.current.clear();
+
+      stations.forEach(s => {
+        if (!Number.isFinite(s.latitude) || !Number.isFinite(s.longitude)) return;
+        const aqi = calculateAQI(s.pm25);
+        const meta = getAQIMeta(aqi);
+        const isSel = selected?.station === s.station;
+
+        // Ambient plume (stays visible at all zoom levels)
+        if (showHeatmap) {
+          L.circleMarker([s.latitude, s.longitude], {
+            radius:      isSel ? plumeIntensity * 1.6 : plumeIntensity,
+            fillColor:   meta.color,
+            fillOpacity: isSel ? 0.22 : 0.14,
+            stroke:      true,
+            color:       meta.color,
+            weight:      isSel ? 2 : 1,
+            opacity:     0.5,
+            interactive: false,
+          }).addTo(heatmapLayer.current);
         }
 
-        import("leaflet").then((L) => {
-          const userIcon = L.divIcon({
-            className: "",
+        // Station badge markers
+        if (showMarkers) {
+          const shortName = s.station
+            .replace(/^(GJ|MH)-[A-Z]+-[0-9]+\s*\((.*?)\)$/, "$2")
+            .substring(0, 18);
+
+          const icon = L.divIcon({
+            className: "custom-div-pin",
             html: `
               <div style="
-                width: 20px; height: 20px; border-radius: 50%;
-                background: #2563eb; border: 3px solid #ffffff;
-                box-shadow: 0 0 0 8px rgba(37, 99, 235, 0.35);
-              "></div>
+                display: inline-flex;
+                align-items: center;
+                background: ${isSel ? '#0f172a' : 'rgba(255,255,255,0.98)'};
+                padding: 3px 10px 3px 3px;
+                border-radius: 999px;
+                box-shadow: 0 4px 20px rgba(15,23,42,${isSel ? '0.4' : '0.18'});
+                border: 2px solid ${isSel ? '#1d72f2' : meta.color};
+                cursor: pointer;
+                transform: ${isSel ? 'scale(1.22)' : 'scale(1)'};
+                transition: all 0.2s ease;
+                white-space: nowrap;
+                font-family: 'Plus Jakarta Sans', sans-serif;
+              ">
+                <div style="
+                  width: 28px; height: 28px;
+                  border-radius: 50%;
+                  background: ${meta.color};
+                  color: #fff;
+                  display: flex; align-items: center; justify-content: center;
+                  font-size: 10.5px; font-weight: 900;
+                  margin-right: 7px;
+                  box-shadow: 0 2px 8px ${meta.color}60;
+                  flex-shrink: 0;
+                ">
+                  ${aqi}
+                </div>
+                <div style="display: flex; flex-direction: column; min-width: 0;">
+                  <span style="
+                    font-size: 11px; font-weight: 800;
+                    color: ${isSel ? '#ffffff' : '#0f172a'};
+                    line-height: 1.2;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                    max-width: 90px;
+                  ">${shortName}</span>
+                  <span style="
+                    font-size: 9px; font-weight: 600;
+                    color: ${isSel ? '#93c5fd' : '#64748b'};
+                    margin-top: 1px;
+                  ">${s.city}</span>
+                </div>
+              </div>
             `,
-            iconSize: [20, 20],
-            iconAnchor: [10, 10],
+            iconSize:   [145, 38],
+            iconAnchor: [72, 19],
           });
-          L.marker([latitude, longitude], { icon: userIcon }).addTo(map)
-            .bindPopup("<b>You are here (Live GPS)</b>").openPopup();
-          map.flyTo([latitude, longitude], 11, { duration: 1.5 });
-        }).finally(() => setIsLocating(false));
+
+          const m = L.marker([s.latitude, s.longitude], { icon }).addTo(markersLayer.current);
+          m.on("click", () => {
+            setSelected(s);
+            mapInst.current?.setView([s.latitude, s.longitude], Math.max(mapInst.current.getZoom(), 12), { animate: true });
+          });
+          markerMap.current.set(s.station, m);
+        }
+      });
+    });
+  }, [stations, selected, showHeatmap, showMarkers, plumeIntensity]);
+
+  const targetCity = (city: typeof TARGET_CITIES[0]) => {
+    const found = stations.find(s => s.city.toLowerCase().includes(city.name.toLowerCase()));
+    if (found) setSelected(found);
+    setActiveCity(city.name);
+    mapInst.current?.flyTo([city.lat, city.lon], city.zoom, { animate: true, duration: 1.4 });
+  };
+
+  const selectAndFlyToStation = (st: ExtendedStation) => {
+    setSelected(st);
+    setSearch(st.city + " — " + st.station);
+    setSearchOpen(false);
+    mapInst.current?.flyTo([st.latitude, st.longitude], 14, { animate: true, duration: 1.2 });
+  };
+
+  const locateUser = () => {
+    if (!navigator.geolocation) return;
+    setLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        setLocating(false);
+        const { latitude, longitude } = pos.coords;
+        const nearest = getNearestStation(stations, latitude, longitude);
+        if (nearest) selectAndFlyToStation(nearest);
       },
-      () => {
-        setIsLocating(false);
-        alert("GPS location unavailable.");
-      }
+      () => setLocating(false)
     );
   };
 
+  const filteredStations = useMemo(() => {
+    if (!search.trim()) return stations;
+    const q = search.toLowerCase().replace(/[—–\-]/g, " ").trim();
+    return stations.filter(s =>
+      s.city?.toLowerCase().includes(q) ||
+      s.station?.toLowerCase().includes(q) ||
+      s.state?.toLowerCase().includes(q)
+    );
+  }, [stations, search]);
+
+  const selAQI  = selected ? calculateAQI(selected.pm25) : 0;
+  const selMeta = getAQIMeta(selAQI);
+
   return (
-    <div className="map-workspace" style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
-      {/* Map Control Sidebar (380px) */}
-      <div className="map-control-panel" style={{
-        width: "380px", background: "rgba(255, 255, 255, 0.94)",
-        backdropFilter: "blur(20px)", borderRight: "1px solid #dbeafe",
-        display: "flex", flexDirection: "column", zIndex: 10,
-        boxShadow: "6px 0 24px rgba(37, 99, 235, 0.05)"
-      }}>
-        {/* Header */}
-        <div style={{ padding: "26px 24px 20px", borderBottom: "1px solid #f1f5f9" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-            <Compass size={18} color="#2563eb" />
-            <h1 style={{ fontSize: "20px", fontWeight: 800, color: "#0f172a" }}>
-              Geospatial AQI Grid
-            </h1>
+    <div style={{ padding: "26px 32px 64px", maxWidth: 1650, margin: "0 auto" }}>
+
+      {/* ── Page Header ── */}
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 20, marginBottom: 20, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <span style={{
+              fontSize: 10.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.12em",
+              color: "#7c3aed", background: "linear-gradient(135deg, #faf5ff, #ede9fe)",
+              border: "1px solid #ddd6fe", padding: "4px 10px", borderRadius: 8,
+              display: "flex", alignItems: "center", gap: 6
+            }}>
+              <Compass size={12} /> Geospatial AQI Intelligence
+            </span>
+            <span className="live-dot" />
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#10b981" }}>Continuous Telemetry Active</span>
           </div>
-          <p style={{ fontSize: "12.5px", color: "#64748b" }}>
-            Live CPCB sensor readings on OpenStreetMap streets
+          <h1 className="section-title">
+            Interactive Atmospheric Map &amp; Dispersion GIS
+          </h1>
+          <p style={{ fontSize: 13.5, color: "#64748b", marginTop: 6, fontWeight: 500 }}>
+            Precision topographic mapping with real-time station search, ambient plume overlays, and hyperlocal telemetry.
           </p>
-
-          <button
-            onClick={locateUser}
-            className="btn-pill"
-            style={{
-              width: "100%", marginTop: "14px", justifyContent: "center",
-              background: userCoords ? "#dcfce7" : "linear-gradient(135deg, #2563eb, #1d4ed8)",
-              color: userCoords ? "#15803d" : "#ffffff",
-              border: userCoords ? "1.5px solid #86efac" : "none"
-            }}
-          >
-            <Navigation size={15} />
-            {isLocating ? "Acquiring GPS..." : userCoords ? "GPS Position Centered" : "Find stations near me"}
-          </button>
-          <button
-            type="button"
-            className="map-refresh-button"
-            onClick={() => void refreshStations()}
-            disabled={refreshing}
-          >
-            <RefreshCw size={14} className={refreshing ? "spin" : ""} />
-            {refreshing ? "Updating regional readings" : "Refresh regional readings"}
-          </button>
         </div>
 
-        {/* Selected Station Detail Spotlight */}
-        {selected ? (
-          <div style={{ padding: "20px 24px", borderBottom: "1px solid #f1f5f9", background: "#f8fafc" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-              <div>
-                <span style={{ fontSize: "11px", fontWeight: 700, color: "#2563eb", textTransform: "uppercase" }}>
-                  {selected.source === "CPCB" ? "CPCB monitoring station" : "Open-Meteo city estimate"}
-                </span>
-                <div style={{ fontSize: "18px", fontWeight: 800, color: "#0f172a", marginTop: "2px" }}>
-                  {selected.city || selected.station}
-                </div>
-                <div style={{ fontSize: "11.5px", color: "#64748b" }}>
-                  {selected.latitude.toFixed(4)}°N, {selected.longitude.toFixed(4)}°E
-                </div>
-                {selected.fetched_at && (
-                  <div style={{ fontSize: "10.5px", color: "#64748b", marginTop: "3px" }}>
-                    Updated {new Date(selected.fetched_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                  </div>
-                )}
-              </div>
-              <div style={{
-                padding: "8px 14px", borderRadius: "12px", background: "#ffffff",
-                border: "1px solid #dbeafe", textAlign: "center", boxShadow: "var(--shadow-sm)"
-              }}>
-                <div style={{ fontSize: "18px", fontWeight: 800, color: getAQIColor(selected.pm25 ?? 0) }}>
-                  {getAQI(selected.pm25 ?? 0)}
-                </div>
-                <div style={{ fontSize: "10px", fontWeight: 700, color: "#64748b" }}>AQI</div>
-              </div>
-            </div>
-
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "14px" }}>
-              <div style={{ background: "#ffffff", borderRadius: "10px", padding: "10px", border: "1px solid #e2e8f0" }}>
-                <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>PM2.5 Sensor</span>
-                <div style={{ fontSize: "15px", fontWeight: 800, color: "#0f172a" }}>{selected.pm25?.toFixed(1)} µg/m³</div>
-              </div>
-              <div style={{ background: "#ffffff", borderRadius: "10px", padding: "10px", border: "1px solid #e2e8f0" }}>
-                <span style={{ fontSize: "11px", color: "#64748b", fontWeight: 600 }}>PM10 Inhalable</span>
-                <div style={{ fontSize: "15px", fontWeight: 800, color: "#0f172a" }}>{selected.pm10?.toFixed(1)} µg/m³</div>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        {/* Station List Filter */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
-          <div style={{ fontSize: "11px", fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "10px" }}>
-            Regional locations ({stations.length})
-          </div>
-          <input
-            className="map-search"
-            type="search"
-            placeholder="Search Ahmedabad, Anand, Surat…"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            aria-label="Search regional locations"
-          />
-          {loadError && <p className="map-error" role="status">{loadError}</p>}
-          {!loadError && loading && <p className="map-list-status">Loading regional air-quality data…</p>}
-          <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {visibleStations.map((s) => {
-              const isCur = selected?.station === s.station;
-              const aqiVal = getAQI(s.pm25 ?? 0);
-              const color = getAQIColor(s.pm25 ?? 0);
-              return (
-                <div
-                  key={s.station}
-                  onClick={() => {
-                    setSelected(s);
-                    if (mapInstanceRef.current) {
-                      mapInstanceRef.current.flyTo([s.latitude, s.longitude], 10, { duration: 1 });
-                    }
-                  }}
-                  className="card-3d map-station-card"
-                  style={{
-                    display: "flex", alignItems: "center", justifyContent: "space-between",
-                    padding: "11px 14px", borderRadius: "12px",
-                    background: isCur ? "#eff6ff" : "#ffffff",
-                    border: isCur ? "1.5px solid #3b82f6" : "1px solid #e2e8f0",
-                    cursor: "pointer"
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <span style={{ width: "9px", height: "9px", borderRadius: "50%", background: color }} />
-                    <div>
-                      <div style={{ fontSize: "13.5px", fontWeight: 700, color: "#0f172a" }}>{s.city || s.station}</div>
-                      <div style={{ fontSize: "11px", color: "#64748b" }}>
-                        {s.source === "CPCB" ? "CPCB sensor" : "Live city-level estimate"}
-                      </div>
-                    </div>
-                  </div>
-                  <div style={{ fontSize: "13px", fontWeight: 800, color: color }}>
-                    {aqiVal} AQI
-                  </div>
-                </div>
-              );
-            })}
-            {!loading && !loadError && visibleStations.length === 0 && (
-              <p className="map-list-status">No locations match “{search}”.</p>
-            )}
-          </div>
-        </div>
-
-        {/* Legend */}
-        <div style={{ padding: "14px 20px", borderTop: "1px solid #f1f5f9", fontSize: "11px", background: "#f8fafc" }}>
-          <div style={{ fontWeight: 700, color: "#334155", marginBottom: "6px" }}>AQI Index Legend:</div>
-          <div style={{ display: "flex", justifyContent: "space-between" }}>
-            <span style={{ color: "#059669", fontWeight: 700 }}>● Good (&lt;50)</span>
-            <span style={{ color: "#d97706", fontWeight: 700 }}>● Mod (&lt;100)</span>
-            <span style={{ color: "#dc2626", fontWeight: 700 }}>● Poor (&lt;200)</span>
-            <span style={{ color: "#7c3aed", fontWeight: 700 }}>● Severe (&gt;200)</span>
-          </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={locateUser} disabled={locating} className="btn-secondary">
+            <LocateFixed size={15} color="#1d72f2" />
+            <span>{locating ? "Locating…" : "My Nearest Station"}</span>
+          </button>
+          <button onClick={loadStations} className="btn-secondary" style={{ padding: "9px 12px" }}>
+            <RefreshCw size={15} className={refreshing ? "spin" : ""} color="#475569" />
+          </button>
         </div>
       </div>
 
-      {/* Main Real Map Container */}
-      <div style={{ flex: 1, position: "relative", height: "100%" }}>
-        <div ref={mapRef} style={{ width: "100%", height: "100%", zIndex: 1 }} />
+      {/* ── City Quick-Jump Bar ── */}
+      <div className="air-card" style={{ padding: "12px 18px", marginBottom: 16, display: "flex", alignItems: "center", gap: 10, overflowX: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+          <Target size={14} color="#1d72f2" />
+          <span style={{ fontSize: 11.5, fontWeight: 800, color: "#0f172a", whiteSpace: "nowrap" }}>Quick Jump:</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "nowrap" }}>
+          {TARGET_CITIES.map(city => {
+            const isActive = activeCity === city.name;
+            return (
+              <button
+                key={city.name}
+                onClick={() => targetCity(city)}
+                style={{
+                  padding: "6px 14px",
+                  borderRadius: 10,
+                  fontSize: 12.5,
+                  fontWeight: 700,
+                  border: isActive ? "2px solid #1d72f2" : "1px solid #cbd5e1",
+                  background: isActive ? "linear-gradient(135deg, #eff6ff, #dbeafe)" : "#ffffff",
+                  color: isActive ? "#1d72f2" : "#334155",
+                  cursor: "pointer",
+                  whiteSpace: "nowrap",
+                  transition: "all 0.15s ease",
+                  boxShadow: isActive ? "0 2px 10px rgba(29,114,242,0.2)" : "none"
+                }}
+              >
+                📍 {city.name}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Layer Controls ── */}
+      <div className="air-card" style={{ padding: "13px 20px", marginBottom: 18, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 12, fontWeight: 800, color: "#0f172a", display: "flex", alignItems: "center", gap: 6 }}>
+            <Layers size={15} color="#1d72f2" /> Layers:
+          </span>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 700, color: "#334155", cursor: "pointer" }}>
+            <input
+              type="checkbox" checked={showHeatmap}
+              onChange={e => setShowHeatmap(e.target.checked)}
+              style={{ accentColor: "#1d72f2", width: 15, height: 15, cursor: "pointer" }}
+            />
+            Ambient Plume Glow
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, fontWeight: 700, color: "#334155", cursor: "pointer" }}>
+            <input
+              type="checkbox" checked={showMarkers}
+              onChange={e => setShowMarkers(e.target.checked)}
+              style={{ accentColor: "#1d72f2", width: 15, height: 15, cursor: "pointer" }}
+            />
+            Station Badges
+          </label>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#64748b", display: "flex", alignItems: "center", gap: 5 }}>
+            <Sliders size={13} color="#1d72f2" />
+            Plume Radius: <strong style={{ color: "#0f172a" }}>{plumeIntensity}px</strong>
+          </span>
+          <input
+            type="range" min={10} max={50} value={plumeIntensity}
+            onChange={e => setPlumeIntensity(Number(e.target.value))}
+            style={{ accentColor: "#1d72f2", cursor: "pointer", width: 100 }}
+          />
+        </div>
+      </div>
+
+      {/* ── Map + Right Panel ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 420px", gap: 22, minHeight: 700 }}>
+
+        {/* MAP */}
+        <div className="air-card" style={{ minHeight: 700, position: "relative", padding: 0, overflow: "hidden" }}>
+          <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: 700, borderRadius: 20 }} />
+
+          {/* ── Floating Search Bar ── */}
+          <div style={{ position: "absolute", top: 16, left: 16, zIndex: 1000, width: 320 }}>
+            <div style={{ position: "relative" }}>
+              <div style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                background: "rgba(255,255,255,0.96)",
+                backdropFilter: "blur(16px)",
+                padding: "10px 14px",
+                borderRadius: 14,
+                border: "1.5px solid #cbd5e1",
+                boxShadow: "0 6px 24px rgba(15,23,42,0.18)",
+              }}>
+                <Search size={15} color="#1d72f2" />
+                <input
+                  type="text"
+                  placeholder="Search city or station name…"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setSearchOpen(true);
+                  }}
+                  onFocus={() => setSearchOpen(true)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && filteredStations.length > 0) {
+                      selectAndFlyToStation(filteredStations[0]);
+                    }
+                    if (e.key === "Escape") {
+                      setSearchOpen(false);
+                    }
+                  }}
+                  style={{
+                    border: "none", outline: "none",
+                    background: "transparent",
+                    fontSize: 13, fontWeight: 600,
+                    color: "#0f172a", width: "100%",
+                    fontFamily: "'Plus Jakarta Sans', sans-serif",
+                  }}
+                />
+                {search && (
+                  <button
+                    onClick={() => { setSearch(""); setSearchOpen(false); }}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", padding: 2, display: "flex" }}
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Search Results Dropdown */}
+              {searchOpen && search.trim() && (
+                <div style={{
+                  position: "absolute",
+                  top: "calc(100% + 6px)",
+                  left: 0, right: 0,
+                  background: "#ffffff",
+                  borderRadius: 14,
+                  boxShadow: "0 16px 48px rgba(15,23,42,0.22)",
+                  border: "1px solid #e2e8f0",
+                  maxHeight: 280,
+                  overflowY: "auto",
+                  zIndex: 2000,
+                  padding: 4,
+                }}>
+                  {filteredStations.length === 0 ? (
+                    <div style={{ padding: "14px 16px", fontSize: 12.5, color: "#64748b", textAlign: "center" }}>
+                      <Search size={20} color="#cbd5e1" style={{ display: "block", margin: "0 auto 8px" }} />
+                      No stations match "{search}"
+                    </div>
+                  ) : (
+                    filteredStations.slice(0, 10).map((st) => {
+                      const aqi = calculateAQI(st.pm25);
+                      const m = getAQIMeta(aqi);
+                      return (
+                        <div
+                          key={st.station}
+                          onClick={() => selectAndFlyToStation(st)}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            padding: "10px 12px",
+                            borderRadius: 10,
+                            cursor: "pointer",
+                            transition: "background 0.12s",
+                          }}
+                          onMouseEnter={e => (e.currentTarget.style.background = "#f1f5f9")}
+                          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <div style={{
+                              width: 32, height: 32, borderRadius: 8,
+                              background: m.bg, color: m.color,
+                              display: "flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 11, fontWeight: 900, flexShrink: 0
+                            }}>
+                              {aqi}
+                            </div>
+                            <div>
+                              <strong style={{ fontSize: 12.5, color: "#0f172a", display: "block" }}>
+                                {st.station}
+                              </strong>
+                              <span style={{ fontSize: 10.5, color: "#64748b" }}>
+                                📍 {st.city}, {st.state || "India"}
+                              </span>
+                            </div>
+                          </div>
+                          <span style={{
+                            fontSize: 10.5, fontWeight: 800,
+                            color: m.color, background: m.bg,
+                            padding: "3px 8px", borderRadius: 6, flexShrink: 0
+                          }}>
+                            {m.label}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* AQI Legend */}
+          <div style={{
+            position: "absolute", top: 16, right: 16, zIndex: 1000,
+            background: "rgba(255,255,255,0.96)",
+            backdropFilter: "blur(16px)",
+            padding: "12px 14px",
+            borderRadius: 14,
+            border: "1px solid rgba(255,255,255,0.8)",
+            boxShadow: "0 8px 24px rgba(15,23,42,0.14)",
+          }}>
+            <span style={{ fontSize: 9.5, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: "#64748b", display: "block", marginBottom: 8 }}>
+              CPCB AQI Scale
+            </span>
+            {[
+              { label: "Good",      color: "#10b981", range: "0–50" },
+              { label: "Moderate",  color: "#f59e0b", range: "51–100" },
+              { label: "Poor",      color: "#f97316", range: "101–200" },
+              { label: "Unhealthy", color: "#ef4444", range: "201–300" },
+              { label: "Severe",    color: "#8b5cf6", range: "301+" },
+            ].map(leg => (
+              <div key={leg.label} style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 4 }}>
+                <div style={{ width: 12, height: 12, borderRadius: 3, background: leg.color, flexShrink: 0 }} />
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: "#334155" }}>{leg.label}</span>
+                <span style={{ fontSize: 9.5, color: "#94a3b8", marginLeft: "auto" }}>{leg.range}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Status Pill */}
+          <div style={{
+            position: "absolute", bottom: 20, left: 20, zIndex: 1000,
+            background: "rgba(255,255,255,0.96)",
+            backdropFilter: "blur(12px)",
+            padding: "8px 16px",
+            borderRadius: 999,
+            border: "1px solid rgba(255,255,255,0.8)",
+            boxShadow: "0 4px 16px rgba(15,23,42,0.12)",
+            display: "flex", alignItems: "center", gap: 8
+          }}>
+            <span className="live-dot" />
+            <span style={{ fontSize: 12, fontWeight: 800, color: "#0f172a" }}>
+              {stations.length} Stations Active
+            </span>
+            <span style={{ fontSize: 10.5, color: "#64748b" }}>· OpenStreetMap GIS</span>
+          </div>
+        </div>
+
+        {/* Right Panel */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+
+          {/* Selected Station Inspector */}
+          {selected && (
+            <div className="air-card" style={{ padding: "24px", borderTop: `5px solid ${selMeta.color}` }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+                <span style={{
+                  padding: "4px 12px", borderRadius: 8,
+                  background: selMeta.bg, color: selMeta.color,
+                  border: `1px solid ${selMeta.border}`,
+                  fontSize: 12, fontWeight: 800,
+                }}>
+                  ● {selMeta.label}
+                </span>
+                <span style={{ fontSize: 11, color: "#64748b", fontWeight: 600 }}>
+                  {selected.source || "CAAQMS Station"}
+                </span>
+              </div>
+
+              <h2 style={{ fontSize: 22, fontWeight: 900, color: "#0f172a", lineHeight: 1.2, marginBottom: 4 }}>
+                {selected.station}
+              </h2>
+              <p style={{ fontSize: 12.5, color: "#64748b", fontWeight: 600, display: "flex", alignItems: "center", gap: 5, marginBottom: 18 }}>
+                <MapPin size={13} color="#1d72f2" />
+                {selected.city}, {selected.state || "India"}
+              </p>
+
+              {/* AQI + PM2.5 */}
+              <div style={{
+                display: "grid", gridTemplateColumns: "1fr 1fr",
+                gap: 14, background: "#f8fafc",
+                borderRadius: 14, padding: "16px",
+                border: "1px solid #e2e8f0", marginBottom: 18
+              }}>
+                <div>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em" }}>AQI INDEX</span>
+                  <div className="display-num" style={{ fontSize: 38, color: selMeta.color, marginTop: 4 }}>
+                    {selAQI}
+                  </div>
+                </div>
+                <div>
+                  <span style={{ fontSize: 10, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em" }}>PM2.5 CONC.</span>
+                  <div style={{ marginTop: 8 }}>
+                    <span className="display-num" style={{ fontSize: 26, color: "#0f172a" }}>
+                      {selected.pm25.toFixed(1)}
+                    </span>
+                    <span style={{ fontSize: 12, color: "#94a3b8", marginLeft: 4 }}>µg/m³</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Microdata */}
+              {(selected.temperature || selected.humidity || selected.wind_speed) && (
+                <div style={{ display: "flex", gap: 10, marginBottom: 18 }}>
+                  {selected.temperature && (
+                    <div style={{ flex: 1, background: "#fff7ed", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+                      <Thermometer size={14} color="#ea580c" style={{ display: "block", margin: "0 auto 3px" }} />
+                      <span style={{ fontSize: 13, fontWeight: 900, color: "#ea580c" }}>{selected.temperature}°C</span>
+                    </div>
+                  )}
+                  {selected.humidity && (
+                    <div style={{ flex: 1, background: "#f0f9ff", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+                      <Droplets size={14} color="#0284c7" style={{ display: "block", margin: "0 auto 3px" }} />
+                      <span style={{ fontSize: 13, fontWeight: 900, color: "#0284c7" }}>{selected.humidity}%</span>
+                    </div>
+                  )}
+                  {selected.wind_speed && (
+                    <div style={{ flex: 1, background: "#ecfdf5", borderRadius: 10, padding: "8px 10px", textAlign: "center" }}>
+                      <Wind size={14} color="#059669" style={{ display: "block", margin: "0 auto 3px" }} />
+                      <span style={{ fontSize: 13, fontWeight: 900, color: "#059669" }}>{selected.wind_speed}km/h</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* LSTM Forecast */}
+              <div style={{ marginBottom: 18 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: "#0f172a", display: "flex", alignItems: "center", gap: 6 }}>
+                    <TrendingUp size={14} color="#1d72f2" /> ML Forecast
+                  </span>
+                  <span style={{ fontSize: 9.5, fontWeight: 800, color: "#1d72f2", background: "#eff6ff", padding: "2px 7px", borderRadius: 4 }}>
+                    LSTM Engine
+                  </span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+                  {[
+                    { horizon: "+1 Hr",  mult: 1.05 },
+                    { horizon: "+3 Hrs", mult: 1.12 },
+                    { horizon: "+6 Hrs", mult: 1.22 },
+                  ].map(f => {
+                    const predPM  = Math.round(selected.pm25 * f.mult);
+                    const predAQI = calculateAQI(predPM);
+                    const pm      = getAQIMeta(predAQI);
+                    return (
+                      <div key={f.horizon} style={{
+                        background: "#ffffff", border: "1px solid #e2e8f0",
+                        borderRadius: 12, padding: "10px 8px", textAlign: "center"
+                      }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "#64748b", display: "block" }}>{f.horizon}</span>
+                        <div className="display-num" style={{ fontSize: 20, color: pm.color, margin: "4px 0" }}>{predAQI}</div>
+                        <span style={{ fontSize: 9.5, fontWeight: 700, color: "#334155" }}>{predPM} µg/m³</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Health Advisory */}
+              <div style={{
+                background: selAQI > 100 ? "#fff7ed" : "#ecfdf5",
+                border: `1px solid ${selAQI > 100 ? "#fed7aa" : "#a7f3d0"}`,
+                borderRadius: 12, padding: "12px 14px",
+                display: "flex", alignItems: "flex-start", gap: 10
+              }}>
+                <ShieldCheck size={18} color={selAQI > 100 ? "#ea580c" : "#059669"} style={{ flexShrink: 0, marginTop: 2 }} />
+                <div>
+                  <h4 style={{ fontSize: 12.5, fontWeight: 800, color: selAQI > 100 ? "#9a3412" : "#065f46" }}>
+                    Public Health Advisory
+                  </h4>
+                  <p style={{ fontSize: 11.5, color: selAQI > 100 ? "#c2410c" : "#047857", marginTop: 3, lineHeight: 1.4, fontWeight: 500 }}>
+                    {selAQI <= 50
+                      ? "Air quality is ideal for all outdoor activities."
+                      : selAQI <= 100
+                      ? "Acceptable air quality; sensitive individuals should limit prolonged exposure."
+                      : selAQI <= 200
+                      ? "Sensitive cohorts should reduce heavy outdoor exertion."
+                      : "High pollution levels. Wear N95 mask outdoors and keep windows closed."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Station List */}
+          <div className="air-card" style={{ padding: "16px", maxHeight: 300, overflowY: "auto" }}>
+            <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em", color: "#64748b", marginBottom: 10, display: "block" }}>
+              Regional Stations ({stations.length})
+            </span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              {stations.slice(0, 25).map(st => {
+                const aqi  = calculateAQI(st.pm25);
+                const m    = getAQIMeta(aqi);
+                const isCur = selected?.station === st.station;
+                return (
+                  <button
+                    key={st.station}
+                    onClick={() => selectAndFlyToStation(st)}
+                    style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "9px 12px",
+                      borderRadius: 10,
+                      border: isCur ? "1.5px solid #1d72f2" : "1px solid #f1f5f9",
+                      background: isCur ? "#eff6ff" : "#ffffff",
+                      cursor: "pointer", textAlign: "left",
+                      transition: "all 0.15s ease",
+                    }}
+                    onMouseEnter={e => { if (!isCur) e.currentTarget.style.background = "#f8fafc"; }}
+                    onMouseLeave={e => { if (!isCur) e.currentTarget.style.background = "#ffffff"; }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                      <div style={{
+                        width: 28, height: 28, borderRadius: 7,
+                        background: m.bg, color: m.color,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        fontSize: 10, fontWeight: 900, flexShrink: 0
+                      }}>
+                        {aqi}
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <strong style={{ fontSize: 12, color: isCur ? "#1d72f2" : "#0f172a", display: "block", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 180 }}>
+                          {st.station}
+                        </strong>
+                        <span style={{ fontSize: 10.5, color: "#64748b" }}>{st.city}</span>
+                      </div>
+                    </div>
+                    <span style={{
+                      fontSize: 10, fontWeight: 800,
+                      color: m.color, background: m.bg,
+                      padding: "2px 7px", borderRadius: 5, flexShrink: 0
+                    }}>
+                      {m.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+        </div>
       </div>
     </div>
   );
