@@ -44,8 +44,11 @@ export default function GisMapCanvas({
         zoom: 7,
         zoomControl: false,
         attributionControl: true,
+        minZoom: 5,
+        maxZoom: 18,
       });
 
+      // Custom zoom control positioned bottom-right
       L.control.zoom({ position: "bottomright" }).addTo(map);
 
       const isDark = typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "cosmic";
@@ -63,7 +66,9 @@ export default function GisMapCanvas({
       markersLayer.current = L.layerGroup().addTo(map);
       mapInst.current = map;
 
-      setTimeout(() => { map.invalidateSize(); }, 400);
+      // Force proper tile render after container paint
+      setTimeout(() => { map.invalidateSize(); }, 200);
+      setTimeout(() => { map.invalidateSize(); }, 800);
     });
 
     return () => {
@@ -171,6 +176,6 @@ export default function GisMapCanvas({
     });
   }, [stations, selected, showHeatmap, showMarkers, plumeIntensity, onSelectStation]);
 
-  return <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: 700, borderRadius: 16 }} />;
+  return <div ref={mapRef} style={{ width: "100%", height: "100%", minHeight: 500, borderRadius: 18 }} />;
 }
 

@@ -6,13 +6,13 @@ import {
 } from "lucide-react";
 
 const NAV = [
-  { href: "/",            label: "Overview",          icon: Home,            badge: "Terminal" },
-  { href: "/dashboard",   label: "Air Quality Hub",   icon: LayoutDashboard, badge: "Modular" },
-  { href: "/trends",      label: "AI Forecasts",      icon: TrendingUp,      badge: "24h ML" },
-  { href: "/map",         label: "Pollution Map",     icon: Map,             badge: "GIS" },
-  { href: "/alerts",      label: "Early Warnings",    icon: Bell,            badge: "Rules" },
-  { href: "/leaderboard", label: "City Rankings",     icon: BarChart3,       badge: "Benchmark" },
-  { href: "/profile",     label: "Clinical Health",   icon: Info,            badge: "Health" },
+  { href: "/",            label: "Overview",        icon: Home,            badge: "Live" },
+  { href: "/dashboard",   label: "Dashboard",       icon: LayoutDashboard, badge: "Widgets" },
+  { href: "/trends",      label: "Forecasts",       icon: TrendingUp,      badge: "24h" },
+  { href: "/map",         label: "Air Quality Map", icon: Map,             badge: "GIS" },
+  { href: "/alerts",      label: "Alerts",          icon: Bell,            badge: "Smart" },
+  { href: "/leaderboard", label: "City Rankings",   icon: BarChart3,       badge: "Top" },
+  { href: "/profile",     label: "Health Guide",    icon: Info,            badge: "Tips" },
 ];
 
 export default function Sidebar({ mobileOpen }: { mobileOpen?: boolean }) {
@@ -103,7 +103,7 @@ export default function Sidebar({ mobileOpen }: { mobileOpen?: boolean }) {
           marginBottom: 10,
         }}
       >
-        Platform Navigation
+        Navigation
       </div>
 
       {/* Navigation Links - Static, clean, high luxury */}
@@ -187,14 +187,14 @@ export default function Sidebar({ mobileOpen }: { mobileOpen?: boolean }) {
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
           <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-primary)", letterSpacing: "0.04em" }}>
-            CAAQMS Network
+            Sensor Network
           </span>
           <span style={{ fontSize: 9.5, fontWeight: 700, color: "var(--mint)" }}>
-            Connected
+            Active
           </span>
         </div>
         <p style={{ fontSize: 10, color: "var(--text-muted)", margin: 0, lineHeight: 1.4 }}>
-          24 Regional Sensor Stations · Machine Learning Pipeline
+          24 Stations · Gujarat &amp; Maharashtra
         </p>
       </div>
 
