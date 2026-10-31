@@ -79,7 +79,7 @@ const DEFAULT_WIDGETS: DashboardWidget[] = [
   { id: "aqi_gauge",        title: "National AQI Index",          span: "span-4", visible: true },
   { id: "spectrum",         title: "Multi-Pollutant Spectrum",    span: "span-8", visible: true },
   { id: "scenario_sim",     title: "Atmospheric Scenario Studio", span: "span-12", visible: true },
-  { id: "forecast_chart",   title: "Predictive AI ML Forecast",   span: "span-8", visible: true },
+  { id: "forecast_chart",   title: "Predictive Atmospheric Forecast",   span: "span-8", visible: true },
   { id: "microclimate",     title: "Atmospheric Telemetry",       span: "span-4", visible: true },
   { id: "health_advisory",  title: "Cohort Health Advisories",    span: "span-6", visible: true },
   { id: "city_comparison",  title: "Regional Comparative Radar",  span: "span-6", visible: true },
@@ -617,10 +617,10 @@ export default function DashboardPage() {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
               <div>
                 <h3 style={{ fontSize: inModal ? 22 : 17, fontWeight: 800, color: "var(--text-primary)" }}>
-                  24-Hour Predictive AI Forecast Horizon
+                  24-Hour Predictive Horizon
                 </h3>
                 <p style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-                  Deep learning conformal interval projection with statistical upper/lower bounds.
+                  Conformal interval projection with statistical upper and lower uncertainty bounds.
                 </p>
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 12, fontSize: 11, color: "var(--text-muted)" }}>

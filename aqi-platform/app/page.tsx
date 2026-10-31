@@ -313,7 +313,7 @@ export default function OverviewPage() {
               }}>
                 <ShieldCheck size={14} color="var(--mint)" aria-hidden="true" />
                 <span style={{ fontSize: 11, fontWeight: 800, color: "var(--text-primary)", letterSpacing: "0.06em" }}>
-                  {isLive ? "CPCB TELEMETRY ACTIVE" : "OPEN-METEO ML ESTIMATES"}
+                  {isLive ? "CPCB TELEMETRY ACTIVE" : "OPEN-METEO REGIONAL ESTIMATES"}
                 </span>
               </div>
 
@@ -326,19 +326,19 @@ export default function OverviewPage() {
               }}>
                 <Sparkles size={12} color="var(--mint)" aria-hidden="true" />
                 <span style={{ fontSize: 11, fontWeight: 700, color: "var(--mint)" }}>
-                  XGBoost v2.4 ML
+                  Continuous Forecast Engine
                 </span>
               </div>
             </div>
 
             {/* Main headline */}
-            <h1 className="hero-title" style={{ marginBottom: 14 }}>
+            <h1 style={{ marginBottom: 14, fontSize: "clamp(20px, 2.2vw, 30px)", fontWeight: 800, lineHeight: 1.25 }}>
               <span style={{
                 display: "block",
                 color: "var(--text-primary)",
-                letterSpacing: "-0.03em",
+                letterSpacing: "-0.025em",
               }}>
-                Hyperlocal Air Intelligence.
+                Hyperlocal Air Intelligence
               </span>
               <span style={{
                 display: "block",
@@ -346,9 +346,10 @@ export default function OverviewPage() {
                 WebkitBackgroundClip: "text",
                 WebkitTextFillColor: "transparent",
                 backgroundClip: "text",
-                letterSpacing: "-0.03em",
+                letterSpacing: "-0.025em",
+                fontSize: "0.92em",
               }}>
-                Real-Time & Machine-Predicted.
+                Real-Time &amp; Predictive Insights
               </span>
             </h1>
 
@@ -360,7 +361,7 @@ export default function OverviewPage() {
               maxWidth: 480,
               marginBottom: 24,
             }}>
-              Monitor micro-scale pollution surges across Western India with sub-kilometer GIS resolution, modular drag-and-drop dashboarding, and XGBoost machine-learning forecasts.
+              Monitor micro-scale pollution surges across Western India with sub-kilometer GIS resolution, modular drag-and-drop dashboarding, and multi-horizon atmospheric forecasts.
             </p>
 
             {/* Regional Quick Station Jump Carousel */}
@@ -431,7 +432,7 @@ export default function OverviewPage() {
                 }}
               >
                 <TrendingUp size={16} aria-hidden="true" />
-                View AI Forecast Models
+                View Forecast Trends
               </Link>
             </div>
 
@@ -693,7 +694,7 @@ export default function OverviewPage() {
                 </div>
               ))}
               <span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: "auto", fontWeight: 600 }}>
-                High-Resolution CartoDB GIS
+                High-Resolution OpenStreetMap GIS
               </span>
             </div>
           </div>
@@ -759,17 +760,17 @@ export default function OverviewPage() {
               </div>
             ) : null}
 
-            {/* AI XGBoost PM2.5 Forecast Card */}
+            {/* PM2.5 Projection Card */}
             <div className="glass-card" style={{ padding: "20px 22px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <TrendingUp size={15} color="var(--mint)" aria-hidden="true" />
                   <h3 style={{ fontSize: 14, fontWeight: 800, color: "var(--text-primary)", fontFamily: "'Outfit', sans-serif" }}>
-                    XGBoost PM2.5 Projection
+                    Continuous PM2.5 Forecast
                   </h3>
                 </div>
                 <span className="tag">
-                  ML Inference
+                  Horizon Forecast
                 </span>
               </div>
 
@@ -826,7 +827,7 @@ export default function OverviewPage() {
                     ))}
                   </div>
                   <p style={{ fontSize: 10.5, color: "var(--text-muted)", marginTop: 10, fontWeight: 500 }}>
-                    ● Baseline · ◈ XGBoost Horizon Forecasts
+                    ● Monitored Baseline · ◈ Multi-Hour Trend Projections
                   </p>
                 </>
               ) : (

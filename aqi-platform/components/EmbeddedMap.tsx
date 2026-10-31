@@ -83,16 +83,13 @@ export default function EmbeddedMap({
 
       mapInstance.current = map;
 
-      const isDark = typeof document !== "undefined" && document.documentElement.getAttribute("data-theme") === "cosmic";
-      const tileUrl = isDark
-        ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        : "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png";
+      // High-Resolution OpenStreetMap Tiles - No API key required, 100% visible and reliable
+      const tileUrl = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 
-      // CartoDB High-Resolution GIS Tiles
       L.tileLayer(tileUrl, {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
         maxZoom: 19,
-        subdomains: "abcd",
+        subdomains: ["a", "b", "c"],
       }).addTo(map);
 
       const mLayer = L.layerGroup().addTo(map);

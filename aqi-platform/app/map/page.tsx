@@ -128,7 +128,7 @@ export default function MapPage() {
   const selMeta = getAQIMeta(selAQI);
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 0px)", padding: "20px 24px 20px", gap: 14, boxSizing: "border-box" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 57px)", padding: "16px 20px 16px", gap: 12, boxSizing: "border-box", overflow: "hidden" }}>
 
       {/* ── Compact Header Row ── */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexShrink: 0 }}>
@@ -234,7 +234,7 @@ export default function MapPage() {
       </div>
 
       {/* ── Main area: Map + right panel ── */}
-      <div style={{ flex: 1, display: "grid", gridTemplateColumns: panelOpen ? "1fr 360px" : "1fr", gap: 14, minHeight: 0 }}>
+      <div style={{ flex: 1, display: "grid", gridTemplateColumns: panelOpen ? "1fr 360px" : "1fr", gap: 14, minHeight: 0, height: "100%" }}>
 
         {/* MAP WRAPPER */}
         <div style={{
@@ -244,7 +244,8 @@ export default function MapPage() {
           border: "1px solid var(--border)",
           boxShadow: "var(--sh-panel)",
           background: "var(--bg-card)",
-          minHeight: 500,
+          flex: 1,
+          height: "100%",
         }}>
 
           {/* Full-height map canvas */}

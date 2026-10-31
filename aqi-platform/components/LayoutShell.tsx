@@ -8,13 +8,13 @@ import AtmosphericMesh from "@/components/AtmosphericMesh";
 import { RefreshCw, Clock, Menu, X, ShieldCheck } from "lucide-react";
 
 const PAGE_LABELS: Record<string, string> = {
-  "/":            "Overview Terminal",
-  "/dashboard":   "Modular Air Quality Hub",
-  "/trends":      "AI Forecasts & Trends",
-  "/map":         "Geospatial Sensor GIS",
-  "/alerts":      "Early Warning Protocols",
-  "/leaderboard": "Regional Benchmark",
-  "/profile":     "Clinical Risk Assessment",
+  "/":            "Air Quality Overview",
+  "/dashboard":   "Air Quality Dashboard",
+  "/trends":      "Forecasts & Trends",
+  "/map":         "Air Quality Map",
+  "/alerts":      "Smart Alerts",
+  "/leaderboard": "City Rankings",
+  "/profile":     "Health Guide",
 };
 
 function useTime() {
@@ -80,6 +80,9 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
           marginLeft: "var(--sidebar-w, 252px)",
           position: "relative",
           zIndex: 1,
+          display: "flex",
+          flexDirection: "column",
+          minHeight: "100vh",
           transition: "margin-left 0.28s cubic-bezier(0.16,1,0.3,1)",
         }}
       >
@@ -125,7 +128,7 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
           </div>
 
           <div style={{ display: "flex", alignItems: "center", gap: 11, flexWrap: "wrap" }}>
-            {/* Telemetry Status Badge */}
+            {/* Sensor Status Badge */}
             <div
               style={{
                 display: "flex",
@@ -139,7 +142,7 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
             >
               <ShieldCheck size={13} color="var(--mint)" aria-hidden="true" />
               <span style={{ fontSize: 10.5, fontWeight: 800, color: "var(--text-primary)", letterSpacing: "0.04em" }}>
-                TELEMETRY ACTIVE
+                SENSORS ACTIVE
               </span>
             </div>
 
