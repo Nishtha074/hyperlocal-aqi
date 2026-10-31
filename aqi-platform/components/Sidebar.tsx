@@ -2,22 +2,18 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Home, LayoutDashboard, TrendingUp, Map, Bell, BarChart3, Info, Wind,
+  Home, LayoutDashboard, TrendingUp, Map, Bell, BarChart3, Info, Wind
 } from "lucide-react";
 
 const NAV = [
-  { href: "/",            label: "Overview",        icon: Home,            color: "#00ffa3" },
-  { href: "/dashboard",   label: "Live Air Quality", icon: LayoutDashboard, color: "#00d4ff" },
-  { href: "/trends",      label: "Forecasts",        icon: TrendingUp,      color: "#a3e635" },
-  { href: "/map",         label: "Pollution Map",    icon: Map,             color: "#00ffa3" },
-  { href: "/alerts",      label: "Alerts",           icon: Bell,            color: "#f59e0b" },
-  { href: "/leaderboard", label: "City Rankings",    icon: BarChart3,       color: "#a855f7" },
-  { href: "/profile",     label: "About AirPulse",   icon: Info,            color: "#00d4ff" },
+  { href: "/",            label: "Overview",        icon: Home,            badge: "Live" },
+  { href: "/dashboard",   label: "Dashboard",       icon: LayoutDashboard, badge: "Widgets" },
+  { href: "/trends",      label: "Forecasts",       icon: TrendingUp,      badge: "24h" },
+  { href: "/map",         label: "Air Quality Map", icon: Map,             badge: "GIS" },
+  { href: "/alerts",      label: "Alerts",          icon: Bell,            badge: "Smart" },
+  { href: "/leaderboard", label: "City Rankings",   icon: BarChart3,       badge: "Top" },
+  { href: "/profile",     label: "Health Guide",    icon: Info,            badge: "Tips" },
 ];
-
-function hexToRgb(hex: string) {
-  return `${parseInt(hex.slice(1,3),16)},${parseInt(hex.slice(3,5),16)},${parseInt(hex.slice(5,7),16)}`;
-}
 
 export default function Sidebar({ mobileOpen }: { mobileOpen?: boolean }) {
   const pathname = usePathname();
@@ -29,98 +25,203 @@ export default function Sidebar({ mobileOpen }: { mobileOpen?: boolean }) {
       style={{
         width: "252px",
         height: "100vh",
-        background: "rgba(2,10,6,0.97)",
-        borderRight: "1px solid rgba(0,255,163,0.10)",
+        background: "var(--sidebar-bg, rgba(255, 255, 255, 0.92))",
+        borderRight: "1px solid var(--border)",
         backdropFilter: "blur(20px)",
         WebkitBackdropFilter: "blur(20px)",
         display: "flex",
         flexDirection: "column",
-        padding: "22px 14px 24px",
+        padding: "22px 14px 20px",
         overflowY: "auto",
         overflowX: "hidden",
         scrollbarWidth: "none",
         position: "relative",
-        // Sidebar is always visible on all screen sizes.
         transform: "translateX(0)",
-        transition: "transform 0.28s cubic-bezier(0.16,1,0.3,1)",
       }}
     >
-      {/* Top line */}
-      <div aria-hidden="true" style={{
-        position:"absolute", top:0, left:0, right:0, height:1,
-        background:"linear-gradient(90deg,transparent 0%,#00ffa3 40%,#00d4ff 70%,transparent 100%)",
-        opacity:0.6,
-      }} />
-
-      {/* Logo */}
-      <Link href="/" aria-label="AirPulse home" style={{
-        textDecoration:"none", display:"flex", alignItems:"center", gap:11,
-        paddingBottom:22, marginBottom:18,
-        borderBottom:"1px solid rgba(0,255,163,0.10)",
-      }}>
+      {/* Brand Logo Header - Completely static, quiet, luxury */}
+      <Link
+        href="/"
+        aria-label="AirPulse home"
+        style={{
+          textDecoration: "none",
+          display: "flex",
+          alignItems: "center",
+          gap: 11,
+          paddingBottom: 20,
+          marginBottom: 18,
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
         <div style={{
-          width:38, height:38, borderRadius:11, flexShrink:0,
-          background:"linear-gradient(135deg,rgba(0,255,163,0.2),rgba(0,212,255,0.12))",
-          border:"1px solid rgba(0,255,163,0.30)",
-          display:"flex", alignItems:"center", justifyContent:"center",
-          boxShadow:"0 0 20px rgba(0,255,163,0.2)",
+          width: 38,
+          height: 38,
+          borderRadius: 11,
+          flexShrink: 0,
+          background: "var(--bg-glass-md)",
+          border: "1px solid var(--border-bright)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
         }}>
-          <Wind size={19} color="#00ffa3" strokeWidth={2.2} aria-hidden="true" />
+          <Wind size={19} color="var(--mint)" strokeWidth={2.4} aria-hidden="true" />
         </div>
         <div className="sidebar-brand-text">
-          <div style={{ fontFamily:"'Outfit',sans-serif", fontSize:17, fontWeight:800, color:"#fff", letterSpacing:"-0.03em", lineHeight:1.1 }}>
+          <div style={{
+            fontFamily: "'Outfit', sans-serif",
+            fontSize: 17.5,
+            fontWeight: 800,
+            letterSpacing: "-0.03em",
+            lineHeight: 1.15,
+            color: "var(--text-primary)",
+          }}>
             AirPulse
           </div>
-          <div style={{ fontSize:9.5, fontWeight:600, color:"rgba(0,255,163,0.65)", letterSpacing:"0.1em", textTransform:"uppercase", marginTop:2 }}>
-            Environmental Intel
+          <div style={{
+            fontSize: 9.5,
+            fontWeight: 700,
+            color: "var(--text-muted)",
+            letterSpacing: "0.1em",
+            textTransform: "uppercase",
+            marginTop: 2,
+          }}>
+            Atmospheric Intel
           </div>
         </div>
       </Link>
 
-      <div className="sidebar-brand-text" style={{ fontSize:9, fontWeight:700, textTransform:"uppercase", letterSpacing:"0.15em", color:"rgba(0,255,163,0.28)", padding:"0 4px", marginBottom:8 }}>
+      {/* Static Section Label */}
+      <div
+        className="sidebar-brand-text"
+        style={{
+          fontSize: 9.5,
+          fontWeight: 800,
+          textTransform: "uppercase",
+          letterSpacing: "0.14em",
+          color: "var(--text-muted)",
+          padding: "0 8px",
+          marginBottom: 10,
+        }}
+      >
         Navigation
       </div>
 
-      <nav style={{ flex:1 }} aria-label="Primary navigation">
-        {NAV.map(({ href, label, icon: Icon, color }) => {
+      {/* Navigation Links - Static, clean, high luxury */}
+      <nav style={{ flex: 1 }} aria-label="Primary navigation">
+        {NAV.map(({ href, label, icon: Icon, badge }) => {
           const isActive = pathname === href || (href !== "/" && pathname.startsWith(href));
           return (
             <Link
-              key={href} href={href}
+              key={href}
+              href={href}
               className={`nav-link${isActive ? " active" : ""}`}
               aria-current={isActive ? "page" : undefined}
-              style={{ marginBottom:2 }}
+              style={{
+                marginBottom: 4,
+                padding: "9px 12px",
+                borderRadius: 10,
+                background: isActive ? "var(--bg-glass-md)" : "transparent",
+                border: isActive ? "1px solid var(--border-bright)" : "1px solid transparent",
+                color: isActive ? "var(--text-primary)" : "var(--text-secondary)",
+                boxShadow: isActive ? "0 2px 8px rgba(0,0,0,0.04)" : "none",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                textDecoration: "none",
+              }}
             >
-              <div style={{
-                width:28, height:28, borderRadius:8, flexShrink:0,
-                display:"flex", alignItems:"center", justifyContent:"center",
-                background: isActive ? `rgba(${hexToRgb(color)},0.14)` : "rgba(0,255,163,0.04)",
-                transition:"all 0.18s ease",
-              }}>
-                <Icon size={14} color={isActive ? color : "rgba(120,170,140,0.55)"} strokeWidth={isActive ? 2.4 : 2} aria-hidden="true" />
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 7,
+                  flexShrink: 0,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  background: isActive ? "var(--bg-card)" : "transparent",
+                  border: isActive ? "1px solid var(--border)" : "1px solid transparent",
+                }}>
+                  <Icon
+                    size={14}
+                    color={isActive ? "var(--mint)" : "var(--text-muted)"}
+                    strokeWidth={isActive ? 2.4 : 1.9}
+                    aria-hidden="true"
+                  />
+                </div>
+                <span style={{ fontSize: 13, fontWeight: isActive ? 700 : 500 }}>
+                  {label}
+                </span>
               </div>
-              <span className="nav-label">{label}</span>
-              {isActive && (
-                <span aria-hidden="true" style={{ width:4, height:4, borderRadius:"50%", background:color, boxShadow:`0 0 6px ${color}`, flexShrink:0 }} />
-              )}
+
+              <span
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  padding: "2px 7px",
+                  borderRadius: 6,
+                  background: isActive ? "var(--bg-card)" : "var(--bg-glass)",
+                  color: isActive ? "var(--mint)" : "var(--text-muted)",
+                  border: "1px solid var(--border)",
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                }}
+              >
+                {badge}
+              </span>
             </Link>
           );
         })}
       </nav>
 
-      <div style={{ height:1, background:"linear-gradient(90deg,transparent,rgba(0,255,163,0.12),transparent)", margin:"16px 0" }} aria-hidden="true" />
-
-      <div className="sidebar-brand-text" style={{ padding:"10px 12px", borderRadius:10, background:"rgba(0,255,163,0.06)", border:"1px solid rgba(0,255,163,0.14)", marginBottom:14 }}>
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-          <span className="live-dot" aria-hidden="true" />
-          <span style={{ fontSize:10, fontWeight:700, color:"rgba(0,255,163,0.8)", letterSpacing:"0.06em" }}>SYSTEM ONLINE</span>
+      {/* Static Footer Info Box - Absolutely no moving or live elements */}
+      <div
+        className="sidebar-brand-text"
+        style={{
+          padding: "12px 14px",
+          borderRadius: 11,
+          background: "var(--bg-card)",
+          border: "1px solid var(--border)",
+          marginTop: "auto",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 10.5, fontWeight: 700, color: "var(--text-primary)", letterSpacing: "0.04em" }}>
+            Sensor Network
+          </span>
+          <span style={{ fontSize: 9.5, fontWeight: 700, color: "var(--mint)" }}>
+            Active
+          </span>
         </div>
-        <p style={{ fontSize:9.5, color:"rgba(120,170,140,0.55)", fontWeight:500 }}>Open-Meteo · CPCB · XGBoost ML</p>
+        <p style={{ fontSize: 10, color: "var(--text-muted)", margin: 0, lineHeight: 1.4 }}>
+          24 Stations · Gujarat &amp; Maharashtra
+        </p>
       </div>
 
-      <div className="sidebar-brand-text" style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:"0 2px" }}>
-        <span style={{ fontSize:10, color:"rgba(0,255,163,0.25)", fontWeight:500 }}>AirPulse v6.0</span>
-        <span style={{ fontSize:9, fontWeight:700, color:"rgba(0,255,163,0.6)", background:"rgba(0,255,163,0.08)", padding:"2px 7px", borderRadius:5, letterSpacing:"0.05em" }}>XGBoost</span>
+      {/* Static App Version Pill */}
+      <div
+        className="sidebar-brand-text"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "10px 4px 0",
+        }}
+      >
+        <span style={{ fontSize: 10, color: "var(--text-muted)", fontWeight: 600 }}>
+          AirPulse v6.4 Pro
+        </span>
+        <span style={{
+          fontSize: 9,
+          fontWeight: 700,
+          color: "var(--text-secondary)",
+          background: "var(--bg-glass)",
+          padding: "2px 8px",
+          borderRadius: 6,
+          border: "1px solid var(--border)",
+        }}>
+          Standard
+        </span>
       </div>
     </aside>
   );
